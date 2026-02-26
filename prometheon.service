@@ -1,0 +1,16 @@
+[Unit]
+Description=PROMETHEON NAS Terminal AI
+After=network.target ollama.service
+Wants=ollama.service
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/mergerfs/PROMETHEUS/PROMETHEON
+ExecStart=/srv/mergerfs/PROMETHEUS/PROMETHEON/.venv/bin/python3 app.py
+Restart=always
+RestartSec=5
+Environment=PYTHONUNBUFFERED=1
+EnvironmentFile=/srv/mergerfs/PROMETHEUS/PROMETHEON/.env
+
+[Install]
+WantedBy=multi-user.target

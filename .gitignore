@@ -1,0 +1,43 @@
+# Environment and secrets (never commit)
+.env
+.env.*
+.env.local
+.venv
+venv/
+*.pyc
+__pycache__/
+
+# Local / generated data (paths, indexes, usage)
+.claude
+.sessions
+ai_data/
+*.log
+photo_index.json
+.folder_sizes.json
+.disk_stats.json
+.nas_drives.json
+.usage.json
+ai_faces.log
+ai_indexer.log
+ai_rescan.log
+
+# System config that may contain local paths/users
+prometheon-sudoers
+*-sudoers
+
+# TLS certs and keys (never commit)
+*.crt
+*.key
+*.pem
+
+# Stray temp files
+-X
+
+# Generated thumbnail caches
+static/thumbs/
+static/thumbs_hq/
+static/faces/
+
+# OS / IDE
+.DS_Store
+*.bak

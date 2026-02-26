@@ -1,0 +1,357 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;700&display=swap');
+
+:root {
+    --bg-primary: #060a12;
+    --bg-secondary: #0c1220;
+    --bg-tertiary: #0f1828;
+    --accent: #7eb8f0;
+    --accent-bright: #a4d0ff;
+    --accent-dim: #2a4a70;
+    --accent-glow: rgba(126, 184, 240, 0.10);
+    --blue: #7eb8f0;
+    --cyan: #67e8f9;
+    --red: #f07178;
+    --yellow: #f0c674;
+    --magenta: #c4a1f5;
+    --orange: #f0a474;
+    --white: #dce6f0;
+    --white-bright: #f0f4fa;
+    --gray: #5a6a80;
+    --gray-dark: #2d3a4e;
+    --border: #1a2540;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    background: var(--bg-primary);
+    color: var(--white);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    overflow: hidden;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+}
+
+#terminal {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    height: 100dvh;
+    max-width: 100%;
+    overflow: hidden;
+    will-change: height;
+}
+
+/* ─── Header ─── */
+#header {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border);
+    padding: 12px 16px;
+    flex-shrink: 0;
+    overflow-x: auto;
+}
+
+#neofetch {
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+}
+
+#ascii-art {
+    color: var(--accent);
+    font-size: 16px;
+    line-height: 1.2;
+    white-space: pre;
+    opacity: 1;
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    margin: auto;
+    text-shadow: 0 0 20px rgba(126, 184, 240, 0.25);
+}
+
+#sys-info {
+    line-height: 1.6;
+    font-size: 12px;
+    flex-shrink: 0;
+}
+
+#sys-info .label {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+#sys-info .value {
+    color: var(--white);
+}
+
+#sys-info .separator {
+    color: var(--gray-dark);
+    display: block;
+    margin: 2px 0;
+}
+
+/* ─── Output Area ─── */
+#output-area {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px 16px;
+    scroll-behavior: smooth;
+    -webkit-overflow-scrolling: touch;
+}
+
+#output-area::-webkit-scrollbar {
+    width: 4px;
+}
+
+#output-area::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+#output-area::-webkit-scrollbar-thumb {
+    background: var(--gray-dark);
+    border-radius: 2px;
+}
+
+.message {
+    margin-bottom: 12px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    overflow-wrap: anywhere;
+}
+
+.message-user {
+    color: var(--accent-bright);
+}
+
+.message-user .prompt-prefix {
+    color: var(--accent);
+    font-weight: 700;
+}
+
+.message-assistant {
+    color: var(--white);
+    padding-left: 0;
+    line-height: 1.6;
+}
+
+.message-assistant .prefix {
+    color: var(--cyan);
+    font-weight: 700;
+}
+
+.tool-line {
+    color: var(--gray-dark);
+    font-size: 11px;
+    margin: 2px 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.tool-line .tool-icon {
+    opacity: 0.6;
+}
+
+.blocked-msg {
+    color: var(--red);
+    font-weight: 500;
+}
+
+.error-msg {
+    color: var(--red);
+}
+
+.thinking-indicator {
+    color: var(--accent);
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.4; }
+    50% { opacity: 1; }
+}
+
+/* ─── Input Area ─── */
+#input-area {
+    background: var(--bg-secondary);
+    border-top: 1px solid var(--border);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+}
+
+#input-area .prompt-label {
+    color: var(--accent);
+    font-weight: 700;
+    white-space: nowrap;
+    margin-right: 6px;
+    font-size: 14px;
+}
+
+#input-area input {
+    flex: 1;
+    background: transparent;
+    border: none;
+    outline: none;
+    color: var(--white-bright);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 16px;
+    caret-color: var(--accent);
+    -webkit-appearance: none;
+    border-radius: 0;
+}
+
+#input-area input::placeholder {
+    color: var(--gray-dark);
+}
+
+/* ─── Status Bar ─── */
+#status-bar {
+    background: var(--accent-dim);
+    color: var(--white-bright);
+    padding: 3px 16px;
+    font-size: 11px;
+    display: flex;
+    justify-content: space-between;
+    flex-shrink: 0;
+}
+
+#status-bar .status-section {
+    display: flex;
+    gap: 12px;
+}
+
+/* ─── Disk bars ─── */
+.disk-bar {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+}
+
+.disk-bar-track {
+    width: 80px;
+    height: 5px;
+    background: var(--bg-primary);
+    border-radius: 3px;
+    overflow: hidden;
+}
+
+.disk-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 0.3s;
+}
+
+.disk-bar-fill.low { background: var(--accent); }
+.disk-bar-fill.medium { background: var(--yellow); }
+.disk-bar-fill.high { background: var(--red); }
+
+/* ─── Welcome message ─── */
+.welcome {
+    color: var(--gray);
+    margin-bottom: 16px;
+    line-height: 1.6;
+}
+
+.welcome .highlight {
+    color: var(--accent-bright);
+    font-weight: 700;
+}
+
+/* ═══════════════════════════════════════════════
+   MOBILE
+   ═══════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+    html, body {
+        font-size: 12px;
+    }
+
+    #header {
+        padding: 10px 12px;
+    }
+
+    #ascii-art {
+        display: none;
+    }
+
+    #sys-info {
+        font-size: 11px;
+        line-height: 1.5;
+    }
+
+    .disk-bar-track {
+        width: 60px;
+    }
+
+    #output-area {
+        padding: 10px 12px;
+    }
+
+    .message {
+        font-size: 12px;
+        margin-bottom: 10px;
+    }
+
+    .tool-line {
+        font-size: 10px;
+    }
+
+    #input-area {
+        padding: 10px 12px;
+    }
+
+    #input-area .prompt-label {
+        font-size: 13px;
+    }
+
+    #input-area input {
+        font-size: 16px;
+    }
+
+    #status-bar {
+        padding: 3px 12px;
+        font-size: 10px;
+    }
+
+    #status-bar .status-section {
+        gap: 8px;
+    }
+}
+
+@media (max-width: 390px) {
+    .disk-bar-track {
+        width: 45px;
+    }
+}
+
+/* ─── Safe area for notched phones ─── */
+@supports (padding: env(safe-area-inset-bottom)) {
+    #header {
+        padding-top: calc(12px + env(safe-area-inset-top));
+    }
+
+    #input-area {
+        padding-bottom: calc(10px + env(safe-area-inset-bottom));
+        padding-left: calc(16px + env(safe-area-inset-left));
+        padding-right: calc(16px + env(safe-area-inset-right));
+    }
+
+    #status-bar {
+        padding-bottom: calc(3px + env(safe-area-inset-bottom));
+    }
+}
+
+/* ─── Header transition for keyboard collapse ─── */
+#header {
+    transition: none;
+}

@@ -1,0 +1,10 @@
+torch
+open-clip-torch
+numpy
+pillow
+pillow-heif
+
+# Optional: face detection & clustering
+# Requires: sudo apt install cmake libboost-all-dev
+# face_recognition
+# scikit-learn

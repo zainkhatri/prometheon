@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>PROMETHEON</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#04070d">
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg:           #04070d;
+            --panel:        #070c16;
+            --border:       #0c1e30;
+            --accent:       #6495ed;
+            --accent-bright:#9ab5f5;
+            --accent-dim:   #111d40;
+            --white:        #b0cfe0;
+            --gray:         #2d4a60;
+            --dark:         #152030;
+            --green:        #00ff99;
+            --yellow:       #f0c040;
+            --red:          #ff4a6e;
+            --sat: env(safe-area-inset-top, 0px);
+            --sab: env(safe-area-inset-bottom, 0px);
+            --sal: env(safe-area-inset-left, 0px);
+            --sar: env(safe-area-inset-right, 0px);
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+        html, body {
+            height: 100%;
+            background: var(--bg);
+            color: var(--white);
+            font-family: 'JetBrains Mono', monospace;
+            -webkit-text-size-adjust: 100%;
+        }
+
+        @keyframes pageIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to   { opacity: 1; transform: translateY(0); }
+        }
+
+        #terminal {
+            display: flex;
+            flex-direction: column;
+            animation: pageIn 0.35s ease-out;
+            min-height: 100vh;
+            min-height: 100dvh;
+        }
+
+        /* ── Titlebar ── */
+        #titlebar {
+            background: var(--panel);
+            padding: 8px 16px;
+            padding-top:   calc(8px + var(--sat));
+            padding-left:  calc(16px + var(--sal));
+            padding-right: calc(16px + var(--sar));
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border);
+            flex-shrink: 0;
+        }
+        #titlebar .title {
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700;
+            font-size: 10px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+            color: var(--gray);
+        }
+        #titlebar .title-accent {
+            color: var(--accent);
+        }
+        #titlebar .status-dot {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: #00ff99;
+            box-shadow: 0 0 5px rgba(0,255,153,0.7);
+            animation: pulse-dot 2.5s ease-in-out infinite;
+        }
+        @keyframes pulse-dot {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+
+        /* ── Main ── */
+        #main {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            padding: 36px 24px 24px;
+            padding-left:  calc(24px + var(--sal));
+            padding-right: calc(24px + var(--sar));
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            background-image:
+                linear-gradient(rgba(100,149,237,0.02) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(100,149,237,0.02) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+
+        #page-wrap {
+            display: inline-flex;
+            flex-direction: column;
+            align-items: stretch;
+            width: 100%;
+            max-width: 800px;
+        }
+
+        /* ── Banner ── */
+        #banner-wrap {
+            width: 100%;
+            overflow: hidden;
+            margin-bottom: 28px;
+            display: flex;
+            justify-content: center;
+        }
+
+        #banner {
+            color: var(--accent);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 18px;
+            line-height: 1.15;
+            white-space: pre;
+            text-align: center;
+            text-shadow:
+                0 0 6px  rgba(100, 149, 237, 0.9),
+                0 0 18px rgba(100, 149, 237, 0.35),
+                0 0 40px rgba(100, 149, 237, 0.12);
+            transform-origin: top center;
+        }
+
+        /* ── Nav Cards ── */
+        .cards {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            width: 100%;
+            margin-bottom: 14px;
+        }
+
+        .nav-card {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 24px 16px;
+            cursor: pointer;
+            transition: border-color 0.2s, box-shadow 0.2s;
+            text-align: center;
+            text-decoration: none;
+            display: block;
+            color: inherit;
+            -webkit-touch-callout: none;
+        }
+        .nav-card:hover, .nav-card:active {
+            border-color: var(--accent);
+            box-shadow: 0 0 20px rgba(100, 149, 237, 0.08), inset 0 0 20px rgba(100, 149, 237, 0.02);
+        }
+
+        .card-icon {
+            width: 44px;
+            height: 44px;
+            margin: 0 auto 14px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 1px solid var(--border);
+            background: var(--accent-dim);
+        }
+        .card-icon svg { width: 22px; height: 22px; }
+
+        .card-title {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent-bright);
+            margin-bottom: 4px;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        .card-desc {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px;
+            font-weight: 500;
+            letter-spacing: 0.1em;
+            color: var(--gray);
+            margin-bottom: 10px;
+            text-transform: uppercase;
+        }
+        .card-tag {
+            display: inline-block;
+            padding: 2px 10px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            border: 1px solid var(--border);
+        }
+
+        /* ── Vitals ── */
+        .vitals {
+            width: 100%;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            padding: 16px 20px;
+        }
+
+        .vitals-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 14px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid var(--border);
+        }
+        .vitals-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .pulse {
+            width: 5px; height: 5px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse-dot 2.5s ease-in-out infinite;
+            box-shadow: 0 0 5px rgba(0, 255, 153, 0.7);
+        }
+
+        .vitals-label {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            color: var(--accent);
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        .vitals-host {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--dark);
+            text-transform: uppercase;
+        }
+
+        .vitals-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+        }
+        .vitals-col { display: flex; flex-direction: column; }
+        .vitals-col:first-child { padding-right: 20px; border-right: 1px solid var(--border); }
+        .vitals-col:last-child  { padding-left: 20px; }
+
+        .vitals-section {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 8px;
+            font-weight: 700;
+            letter-spacing: 0.25em;
+            color: var(--gray);
+            text-transform: uppercase;
+            margin-bottom: 10px;
+            padding-bottom: 6px;
+            border-bottom: 1px solid var(--border);
+        }
+
+        #v-col-left, #v-col-right {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .v-item {
+            padding-left: 9px;
+            border-left: 2px solid var(--border);
+        }
+        .v-item.ok   { border-left-color: var(--accent); }
+        .v-item.warn { border-left-color: var(--yellow); }
+        .v-item.crit { border-left-color: var(--red); }
+
+        .vitals-row-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 5px;
+        }
+        .vitals-row-header .label {
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            color: var(--gray);
+            font-size: 10px;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+        }
+        .vitals-row-header .value {
+            font-family: 'JetBrains Mono', monospace;
+            color: var(--white);
+            font-size: 10px;
+        }
+
+        .bar { height: 2px; background: #050810; }
+        .bar-fill { height: 100%; transition: width 1s ease; }
+        .bar-fill.ok   { background: var(--accent); box-shadow: 0 0 4px rgba(100, 149, 237, 0.6); }
+        .bar-fill.warn { background: var(--yellow); box-shadow: 0 0 4px rgba(240, 192, 64, 0.6); }
+        .bar-fill.crit { background: var(--red);    box-shadow: 0 0 4px rgba(255, 74, 110, 0.6); }
+
+        .vitals-footer {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 12px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.12em;
+            color: var(--dark);
+            text-transform: uppercase;
+        }
+
+        /* ── Bottom ── */
+        #bottom {
+            background: var(--panel);
+            border-top: 1px solid var(--border);
+            color: var(--gray);
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            padding: 4px 16px;
+            padding-bottom: calc(4px + var(--sab));
+            padding-left:   calc(16px + var(--sal));
+            padding-right:  calc(16px + var(--sar));
+            display: flex;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 768px) {
+            #main { padding: 16px 12px; padding-left: calc(12px + var(--sal)); padding-right: calc(12px + var(--sar)); }
+            .cards { gap: 10px; }
+            .nav-card { padding: 18px 12px; }
+            .card-icon { width: 40px; height: 40px; margin-bottom: 10px; }
+            .vitals { padding: 12px 14px; }
+        }
+
+        @media (max-width: 430px) {
+            #main { padding: 16px 12px; padding-left: calc(12px + var(--sal)); padding-right: calc(12px + var(--sar)); }
+            .vitals-grid { grid-template-columns: 1fr; }
+            .vitals-col:first-child { padding-right: 0; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px; }
+            .vitals-col:last-child  { padding-left: 0; }
+            .cards { gap: 10px; }
+            .nav-card { padding: 16px 10px; }
+            .card-title { font-size: 11px; }
+            .vitals { padding: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="terminal">
+    <div id="titlebar">
+        <div style="display:flex;align-items:center;gap:8px">
+            <div class="status-dot"></div>
+            <span class="title"><span class="title-accent">PROMETHEON</span> &nbsp;/&nbsp; NAS</span>
+        </div>
+        <span class="title" id="titlebar-time"></span>
+    </div>
+
+    <div id="main">
+        <div id="page-wrap">
+
+        <div id="banner-wrap">
+            <div id="banner">
+ ██████╗ ██████╗  ██████╗ ███╗   ███╗███████╗████████╗██╗  ██╗███████╗ ██████╗ ███╗   ██╗
+ ██╔══██╗██╔══██╗██╔═══██╗████╗ ████║██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔═══██╗████╗  ██║
+ ██████╔╝██████╔╝██║   ██║██╔████╔██║█████╗     ██║   ███████║█████╗  ██║   ██║██╔██╗ ██║
+ ██╔═══╝ ██╔══██╗██║   ██║██║╚██╔╝██║██╔══╝     ██║   ██╔══██║██╔══╝  ██║   ██║██║╚██╗██║
+ ██║     ██║  ██║╚██████╔╝██║ ╚═╝ ██║███████╗   ██║   ██║  ██║███████╗╚██████╔╝██║ ╚████║
+ ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝</div>
+        </div>
+
+        <div style="width:100%">
+        <div class="cards">
+            <a href="/terminal" class="nav-card">
+                <div class="card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+                        <rect x="2" y="3" width="20" height="18" rx="2"/>
+                        <polyline points="7,8 11,12 7,16"/>
+                        <line x1="13" y1="16" x2="17" y2="16"/>
+                    </svg>
+                </div>
+                <div class="card-title">Terminal</div>
+                <div class="card-desc">AI Shell</div>
+                <span class="card-tag" style="color:var(--accent);border-color:var(--border)">Claude AI</span>
+            </a>
+            <a href="/photos" class="nav-card">
+                <div class="card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+                        <rect x="2" y="3" width="20" height="18" rx="2"/>
+                        <circle cx="8.5" cy="9.5" r="2"/>
+                        <path d="M21,21 L15,13 L10,18 L7,15 L3,21"/>
+                    </svg>
+                </div>
+                <div class="card-title">Photos</div>
+                <div class="card-desc" id="photo-count-label">Media Gallery</div>
+                <span class="card-tag" style="color:var(--accent);border-color:var(--border)" id="photo-count-tag">—</span>
+            </a>
+        </div>
+
+        <div class="vitals">
+            <div class="vitals-header">
+                <div class="vitals-header-left">
+                    <div class="pulse"></div>
+                    <span class="vitals-label">System Vitals</span>
+                </div>
+                <span class="vitals-host" id="vitals-host">—</span>
+            </div>
+
+            <div class="vitals-grid">
+                <div class="vitals-col">
+                    <div class="vitals-section">Compute</div>
+                    <div id="v-col-left"></div>
+                </div>
+                <div class="vitals-col">
+                    <div class="vitals-section">Storage</div>
+                    <div id="v-col-right"></div>
+                </div>
+            </div>
+
+            <div class="vitals-footer">
+                <span id="v-uptime">Uptime: —</span>
+                <span id="v-clock"></span>
+            </div>
+        </div>
+        </div>
+
+        </div>
+    </div>
+
+    <div id="bottom">
+        <span>PROMETHEON v1.0</span>
+        <span id="clock"></span>
+    </div>
+</div>
+
+<script>
+(function scaleBanner() {
+    const wrap   = document.getElementById('banner-wrap');
+    const banner = document.getElementById('banner');
+    if (!wrap || !banner) return;
+    function fit() {
+        banner.style.transform    = 'none';
+        banner.style.marginBottom = '0';
+        const bw = banner.scrollWidth;
+        const ww = wrap.clientWidth;
+        if (bw > ww && bw > 0) {
+            const s = ww / bw;
+            banner.style.transform       = 'scale(' + s + ')';
+            banner.style.transformOrigin = 'top center';
+            banner.style.marginBottom    = '-' + (banner.offsetHeight * (1 - s)) + 'px';
+        }
+    }
+    fit();
+    if (document.fonts && document.fonts.ready) { document.fonts.ready.then(fit); }
+    window.addEventListener('resize', fit);
+})();
+
+function tick() {
+    const t = new Date().toLocaleTimeString('en-US', {hour12: false});
+    document.getElementById('clock').textContent        = t;
+    document.getElementById('v-clock').textContent      = t;
+    document.getElementById('titlebar-time').textContent = t;
+}
+tick(); setInterval(tick, 1000);
+
+function barClass(pct) { return pct > 90 ? 'crit' : pct > 70 ? 'warn' : 'ok'; }
+
+function vItem(label, value, pct) {
+    const cls = barClass(pct);
+    return `<div class="v-item ${cls}">
+        <div class="vitals-row-header">
+            <span class="label">${label}</span>
+            <span class="value">${value}</span>
+        </div>
+        <div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
+    </div>`;
+}
+
+async function loadVitals() {
+    try {
+        const resp = await fetch('/api/system-info');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const info = await resp.json();
+
+        document.getElementById('vitals-host').textContent = info.hostname;
+        document.getElementById('v-uptime').textContent    = 'Uptime · ' + info.uptime;
+
+        const cpuPct = parseFloat(info.cpu_percent);
+        let left = '';
+        if (info.cpu_temp !== null && info.cpu_temp !== undefined) {
+            const tempPct = Math.min(100, (info.cpu_temp / 100) * 100);
+            left += vItem('CPU Temp', info.cpu_temp + '°C', tempPct);
+        }
+        left += vItem('CPU', cpuPct + '%', cpuPct);
+        const memPct = parseFloat(info.memory_percent);
+        left += vItem('Memory', info.memory_used + ' / ' + info.memory_total, memPct);
+        const pool = info.disks.find(d => d.name === 'PROMETHEUS');
+        if (pool) left += vItem('PROMETHEUS', pool.used + ' / ' + pool.total, pool.percent);
+        document.getElementById('v-col-left').innerHTML = left;
+
+        let right = '';
+        const driveOrder = ['EVO', 'AirDisk', 'T7', 'T9'];
+        const shown = new Set(['PROMETHEUS']);
+        driveOrder.forEach(name => {
+            const d = info.disks.find(x => x.name === name);
+            if (d) { right += vItem(name, d.used + ' / ' + d.total, d.percent); shown.add(name); }
+        });
+        const t5 = info.disks.find(x => x.name === 'T5');
+        if (t5) { right += vItem('BACKUP', t5.used + ' / ' + t5.total, t5.percent); shown.add('T5'); }
+        info.disks.forEach(d => {
+            if (!shown.has(d.name)) right += vItem(d.name, d.used + ' / ' + d.total, d.percent);
+        });
+        document.getElementById('v-col-right').innerHTML = right;
+
+    } catch (e) {}
+}
+
+async function loadPhotoCount() {
+    try {
+        const resp = await fetch('/api/photos/summary');
+        const data = await resp.json();
+        if (data.total) {
+            document.getElementById('photo-count-label').textContent = data.total.toLocaleString() + ' items';
+            const parts = [];
+            if (data.photos) parts.push(data.photos.toLocaleString() + ' photos');
+            if (data.videos) parts.push(data.videos.toLocaleString() + ' videos');
+            document.getElementById('photo-count-tag').textContent = parts.join(' · ') || data.total.toLocaleString();
+        }
+    } catch (e) {}
+}
+
+loadVitals(); setInterval(loadVitals, 5000);
+loadPhotoCount();
+
+async function prefetchPhotoThumbs() {
+    try {
+        const resp = await fetch('/api/photos/all');
+        if (!resp.ok) return;
+        const data = await resp.json();
+        let count = 0;
+        for (const group of (data.groups || [])) {
+            for (const item of group.items) {
+                if (count++ >= 150) return;
+                const img = new Image();
+                img.src = item.thumb;
+            }
+        }
+    } catch (_) {}
+}
+setTimeout(prefetchPhotoThumbs, 1500);
+</script>
+</body>
+</html>

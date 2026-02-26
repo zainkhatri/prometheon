@@ -1,0 +1,15 @@
+[Unit]
+Description=PROMETHEON file watcher — auto-restart on Python source changes
+After=prometheon.service
+Wants=prometheon.service
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/mergerfs/PROMETHEUS/PROMETHEON
+ExecStart=/srv/mergerfs/PROMETHEUS/PROMETHEON/.venv/bin/python3 /srv/mergerfs/PROMETHEUS/PROMETHEON/watcher.py
+Restart=always
+RestartSec=3
+Environment=PYTHONUNBUFFERED=1
+
+[Install]
+WantedBy=multi-user.target

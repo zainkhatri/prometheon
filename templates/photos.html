@@ -1,0 +1,1799 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>PROMETHEON PHOTOS</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#04070d">
+    {% for thumb in first_thumbs %}<link rel="preload" href="{{ thumb }}" as="image" fetchpriority="high">
+    {% endfor %}<script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    bg:     { DEFAULT: '#04070d', panel: '#070c16', tertiary: '#0a1220' },
+                    accent: { DEFAULT: '#6495ed', bright: '#9ab5f5', dim: '#111d40' },
+                    term:   { white: '#b0cfe0', bright: '#ddf0ff', gray: '#2d4a60', dark: '#152030' },
+                    border: '#0c1e30',
+                },
+                fontFamily: {
+                    mono:     ['JetBrains Mono', 'monospace'],
+                    ui:       ['Rajdhani', 'sans-serif'],
+                },
+            }
+        }
+    }
+    </script>
+    <style>
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { background: #04070d; -webkit-text-size-adjust: 100%; }
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #0c1e30; border-radius: 2px; min-height: 40px; }
+        ::-webkit-scrollbar-thumb:hover { background: #2d4a60; }
+        ::-webkit-scrollbar-thumb:active { background: #6495ed; }
+
+        .thumb-container {
+            aspect-ratio: 1;
+            overflow: hidden;
+            position: relative;
+            background: #070c16;
+            border-radius: 0;
+        }
+        .thumb-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            transition: transform 0.25s ease, filter 0.25s ease;
+            will-change: transform;
+        }
+        .thumb-container:hover img {
+            transform: scale(1.05);
+            filter: brightness(1.1);
+        }
+        .thumb-container:active { opacity: 0.8; }
+        .video-badge {
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            background: rgba(0,0,0,0.82);
+            border: 1px solid rgba(100,149,237,0.2);
+            padding: 2px 7px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 700;
+            color: #9ab5f5;
+            pointer-events: none;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+        }
+        .dl-btn {
+            position: absolute;
+            bottom: 6px;
+            left: 6px;
+            width: 26px;
+            height: 26px;
+            background: rgba(0,0,0,0.78);
+            border: 1px solid rgba(100,149,237,0.22);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            opacity: 0;
+            transition: opacity 0.15s;
+            cursor: pointer;
+            z-index: 5;
+            color: #9ab5f5;
+        }
+        .thumb-container:hover .dl-btn { opacity: 1; }
+        body.select-mode .dl-btn { display: none; }
+
+        /* Grid columns */
+        .zoom-5 { grid-template-columns: repeat(5, 1fr); }
+        .zoom-month { grid-template-columns: repeat(3, 1fr); }
+        .zoom-year { grid-template-columns: repeat(2, 1fr); }
+
+        @media (max-width: 768px) {
+            .zoom-5 { grid-template-columns: repeat(3, 1fr); }
+            .zoom-month { grid-template-columns: repeat(2, 1fr); }
+            .zoom-year { grid-template-columns: 1fr; }
+        }
+        @media (min-width: 1400px) {
+            .zoom-5 { grid-template-columns: repeat(7, 1fr); }
+            .zoom-month { grid-template-columns: repeat(4, 1fr); }
+            .zoom-year { grid-template-columns: repeat(3, 1fr); }
+        }
+
+        /* Lightbox */
+        #lightbox {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1000;
+            background: rgba(0,0,0,0.97);
+            flex-direction: column;
+        }
+        #lightbox.active { display: flex; }
+
+        .lb-toolbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 10px 12px;
+            flex-shrink: 0;
+        }
+        .lb-toolbar-btn {
+            width: 40px;
+            height: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            transition: all 0.15s;
+            color: #2d4a60;
+        }
+        .lb-toolbar-btn:hover { background: rgba(100,149,237,0.06); color: #b0cfe0; }
+        .lb-toolbar-btn.delete-btn:hover { color: #ff4a6e; background: rgba(255,74,110,0.08); }
+        .lb-toolbar-btn svg { width: 20px; height: 20px; }
+
+        .lb-body {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            min-height: 0;
+        }
+        .lb-nav {
+            position: absolute;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 48px;
+            height: 48px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.8rem;
+            color: rgba(255,255,255,0.5);
+            cursor: pointer;
+            user-select: none;
+            transition: all 0.15s;
+            z-index: 10;
+            border-radius: 50%;
+        }
+        .lb-nav:hover { background: rgba(255,255,255,0.08); color: #fff; }
+
+        .lb-footer {
+            text-align: center;
+            padding: 10px 16px 20px;
+            padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+            flex-shrink: 0;
+        }
+        .lb-date { color: #9ab5f5; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
+        .lb-counter { color: #2d4a60; font-size: 10px; margin-top: 4px; letter-spacing: 0.12em; text-transform: uppercase; }
+        .lb-filename { color: #152030; font-size: 10px; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
+
+        #lb-media-wrap {
+            position: relative;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            max-width: 95vw;
+            max-height: calc(100vh - 140px);
+        }
+        #lb-media-wrap img,
+        #lb-media-wrap video {
+            max-width: 95vw;
+            max-height: calc(100vh - 140px);
+            object-fit: contain;
+            transition: opacity 0.25s ease;
+        }
+        #lb-media-wrap img.lb-zoomed {
+            max-width: none;
+            max-height: none;
+            cursor: zoom-out;
+        }
+        #lb-media-wrap img:not(.lb-zoomed) {
+            cursor: zoom-in;
+        }
+        .lb-thumb-bg {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 0;
+        }
+        .lb-thumb-bg img {
+            max-width: 95vw;
+            max-height: calc(100vh - 140px);
+            object-fit: contain;
+            filter: blur(20px);
+            transform: scale(1.05);
+            opacity: 0.5;
+        }
+        .lb-loading {
+            color: #6495ed;
+            font-size: 13px;
+            animation: pulse 1.5s ease-in-out infinite;
+            position: absolute;
+            z-index: 1;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.2em;
+            text-transform: uppercase;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 0.4; }
+            50% { opacity: 1; }
+        }
+
+        /* Scroll month indicator */
+        #scroll-indicator {
+            position: fixed;
+            right: 20px;
+            top: 50%;
+            transform: translateY(-50%);
+            background: rgba(7,12,22,0.97);
+            border: 1px solid #0c1e30;
+            color: #6495ed;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            padding: 7px 14px;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.12s ease;
+            z-index: 200;
+            white-space: nowrap;
+            backdrop-filter: blur(8px);
+            box-shadow: 0 0 20px rgba(100,149,237,0.08);
+        }
+        #scroll-indicator.visible { opacity: 1; }
+
+        /* Skeleton */
+        .skeleton {
+            background: linear-gradient(90deg, #070c16 25%, #0d1828 50%, #070c16 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer {
+            0% { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        @keyframes thumbFadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        .thumb-loaded {
+            animation: thumbFadeIn 0.15s ease forwards;
+        }
+
+        @keyframes viewFadeIn {
+            from { opacity: 0; transform: translateY(6px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .view-enter {
+            animation: viewFadeIn 0.25s ease-out forwards;
+        }
+
+        /* Month section header in grid */
+        .month-header {
+            opacity: 0;
+            transform: translateY(8px);
+            transition: opacity 0.4s ease, transform 0.4s ease;
+        }
+        .month-header.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+
+        /* Year header in grid view (month-within-year label above photo strip) */
+        .year-header {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 40px 4px 14px;
+        }
+        .year-header:first-child { padding-top: 24px; }
+        .year-header-text {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 1.75rem;
+            font-weight: 700;
+            color: #6495ed;
+            letter-spacing: 0.2em;
+            white-space: nowrap;
+            text-transform: uppercase;
+        }
+        .year-header-line {
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(to right, #0c1e30, transparent);
+        }
+
+        /* ── Year cards (photo background) ── */
+        .year-card-new {
+            position: relative;
+            overflow: hidden;
+            background: #070c16;
+            border: 1px solid #0c1e30;
+            cursor: pointer;
+            aspect-ratio: 3/2;
+            display: block;
+            transition: box-shadow 0.3s, border-color 0.3s;
+        }
+        .year-card-new:hover {
+            border-color: rgba(100,149,237,0.4);
+            box-shadow: 0 0 40px rgba(100,149,237,0.12);
+        }
+        .year-card-new:active { opacity: 0.85; }
+
+        .year-card-bg {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            transition: transform 0.5s ease, filter 0.3s ease;
+            filter: brightness(0.38) saturate(0.75);
+        }
+        .year-card-new:hover .year-card-bg {
+            transform: scale(1.04);
+            filter: brightness(0.5) saturate(0.9);
+        }
+
+        /* no-photo fallback */
+        .year-card-bg.no-photo {
+            background: #070c16;
+            filter: none;
+        }
+
+        .year-card-gradient {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(4,7,13,0.92) 0%, rgba(4,7,13,0.3) 50%, transparent 100%);
+        }
+
+        .year-card-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 18px 20px;
+        }
+        .year-card-year {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 42px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.06em;
+            line-height: 1;
+            text-shadow: 0 2px 20px rgba(0,0,0,0.6);
+        }
+        .year-card-bottom {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 4px;
+        }
+        .year-card-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 12px;
+            font-weight: 400;
+            color: rgba(255,255,255,0.5);
+        }
+        .year-card-unit {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 0.18em;
+            text-transform: uppercase;
+            color: rgba(255,255,255,0.3);
+        }
+
+        /* no-photo fallback watermark */
+        .year-card-watermark {
+            position: absolute;
+            right: -8px;
+            bottom: -16px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 110px;
+            font-weight: 700;
+            color: rgba(100,149,237,0.055);
+            line-height: 1;
+            pointer-events: none;
+            user-select: none;
+            letter-spacing: -0.02em;
+            z-index: 1;
+        }
+        .year-card-new.has-photo .year-card-watermark { display: none; }
+        .year-card-new.has-photo .year-card-year { color: #fff; }
+
+        /* ── Month cards (photo grid, same vibe as year) ── */
+        .month-year-group { margin-bottom: 48px; }
+
+        .month-year-sep {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            margin-bottom: 14px;
+        }
+        .month-year-sep-label {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.28em;
+            text-transform: uppercase;
+            color: #2d4a60;
+            white-space: nowrap;
+        }
+        .month-year-sep-line {
+            flex: 1;
+            height: 1px;
+            background: linear-gradient(90deg, #0c1e30, transparent);
+        }
+        .month-year-sep-total {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: #152030;
+            white-space: nowrap;
+        }
+
+        .month-card-new {
+            position: relative;
+            overflow: hidden;
+            background: #070c16;
+            border: 1px solid #0c1e30;
+            cursor: pointer;
+            aspect-ratio: 4/3;
+            transition: box-shadow 0.3s, border-color 0.3s;
+        }
+        .month-card-new:hover {
+            border-color: rgba(100,149,237,0.35);
+            box-shadow: 0 0 30px rgba(100,149,237,0.1);
+        }
+        .month-card-new:active { opacity: 0.85; }
+
+        .month-card-bg {
+            position: absolute;
+            inset: 0;
+            background-size: cover;
+            background-position: center;
+            transition: transform 0.5s ease, filter 0.3s ease;
+            filter: brightness(0.38) saturate(0.75);
+        }
+        .month-card-new:hover .month-card-bg {
+            transform: scale(1.05);
+            filter: brightness(0.5) saturate(0.9);
+        }
+        .month-card-bg.no-photo {
+            background: #070c16;
+            filter: none;
+        }
+        .month-card-gradient {
+            position: absolute;
+            inset: 0;
+            background: linear-gradient(to top, rgba(4,7,13,0.95) 0%, rgba(4,7,13,0.2) 55%, transparent 100%);
+        }
+        .month-card-content {
+            position: relative;
+            z-index: 2;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-end;
+            padding: 14px 16px;
+        }
+        .month-card-name {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 20px;
+            font-weight: 700;
+            color: #fff;
+            letter-spacing: 0.08em;
+            text-transform: uppercase;
+            line-height: 1;
+            text-shadow: 0 1px 12px rgba(0,0,0,0.5);
+        }
+        .month-card-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: rgba(255,255,255,0.4);
+            margin-top: 3px;
+        }
+        /* no-photo fallback */
+        .month-card-new.no-photo .month-card-name { color: #6495ed; }
+        .month-card-new.no-photo .month-card-count { color: #2d4a60; }
+
+        /* View tabs */
+        .view-tab {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            background: transparent;
+            color: #2d4a60;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .view-tab:hover { color: #b0cfe0; background: rgba(255,255,255,0.03); }
+        .view-tab.active { background: #111d40; color: #6495ed; }
+
+        /* Trash panel */
+        #trash-panel {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 900;
+            background: #04070d;
+        }
+        #trash-panel.active { display: flex; flex-direction: column; }
+
+        .trash-item {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 12px 20px;
+            border-bottom: 1px solid #0c1e30;
+            transition: background 0.15s;
+        }
+        .trash-item:hover { background: #070c16; }
+        .trash-thumb {
+            width: 52px;
+            height: 52px;
+            border-radius: 0;
+            object-fit: cover;
+            background: #070c16;
+            flex-shrink: 0;
+        }
+        .trash-info { flex: 1; min-width: 0; }
+        .restore-btn {
+            padding: 5px 14px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+            border: 1px solid #0c1e30;
+            color: #6495ed;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+        .restore-btn:hover { background: #111d40; border-color: #6495ed; }
+
+
+        /* ─── People panel ─── */
+        #people-panel {
+            display: none; position: fixed; inset: 0;
+            z-index: 900; background: #04070d; flex-direction: column;
+        }
+        #people-panel.active { display: flex; }
+
+        .person-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+            gap: 20px; padding: 20px 16px;
+        }
+        @media (min-width: 640px) {
+            .person-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 24px; padding: 24px; }
+        }
+        .person-card {
+            display: flex; flex-direction: column; align-items: center;
+            gap: 8px; cursor: pointer; transition: transform 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .person-card:hover { transform: translateY(-3px); }
+        .person-card:active { transform: scale(0.97); }
+        .person-avatar {
+            width: 100%; aspect-ratio: 1; border-radius: 50%;
+            object-fit: cover; border: 2px solid #0c1e30;
+            background: #070c16; transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .person-card:hover .person-avatar { border-color: #6495ed; box-shadow: 0 4px 20px rgba(100,149,237,0.12); }
+        .person-name {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 11px; font-weight: 700;
+            letter-spacing: 0.08em; text-transform: uppercase;
+            color: #b0cfe0;
+            text-align: center; overflow: hidden; text-overflow: ellipsis;
+            white-space: nowrap; width: 100%;
+        }
+        .person-count {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px; color: #2d4a60; margin-top: -4px;
+        }
+
+        /* ─── Select mode ─── */
+        #select-bar {
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 800;
+            background: #070c16; border-top: 1px solid #0c1e30;
+            padding: 12px 16px; display: none;
+            align-items: center; justify-content: space-between; gap: 10px;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        }
+        #select-bar.active { display: flex; }
+        .sel-count {
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 13px; font-weight: 700;
+            letter-spacing: 0.1em; text-transform: uppercase;
+            color: #b0cfe0;
+        }
+        .sel-actions { display: flex; gap: 8px; }
+        .sel-btn {
+            padding: 7px 16px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            cursor: pointer; transition: all 0.15s;
+            border: 1px solid; background: none;
+        }
+        .sel-btn-name { color: #6495ed; border-color: #0c1e30; }
+        .sel-btn-name:hover { background: #111d40; border-color: #6495ed; }
+        .sel-btn-name:disabled { opacity: 0.35; cursor: default; }
+        .sel-btn-cancel { color: #2d4a60; border-color: #0c1e30; }
+        .sel-btn-cancel:hover { color: #b0cfe0; border-color: #2d4a60; }
+        .sel-btn-download { color: #9ab5f5; border-color: #0c1e30; }
+        .sel-btn-download:hover { background: rgba(100,149,237,0.08); border-color: #6495ed; }
+        .sel-btn-download:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
+
+        body.select-mode .thumb-container { cursor: pointer !important; }
+        .thumb-container.selected::after {
+            content: ''; position: absolute; inset: 0;
+            border: 2px solid #6495ed;
+            pointer-events: none; z-index: 5;
+        }
+        .thumb-container.selected::before {
+            content: '✓'; position: absolute; top: 4px; right: 6px;
+            color: #6495ed; font-size: 14px; font-weight: 700;
+            z-index: 6; pointer-events: none;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        }
+
+        /* ── Rajdhani for all UI labels ── */
+        a, button,
+        header, header *,
+        .view-tab,
+        .year-header-text,
+        .sel-btn, .sel-count,
+        .restore-btn,
+        .person-name,
+        .lb-date, .lb-counter, .lb-filename,
+        .lb-toolbar-btn,
+        input::placeholder,
+        #search-input,
+        .video-badge {
+            font-family: 'Rajdhani', sans-serif;
+        }
+        /* Mono for data */
+        .person-count, #photo-count {
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ─── Mobile toolbar ─── */
+        @supports (padding: env(safe-area-inset-top)) {
+            #main-header { padding-top: calc(12px + env(safe-area-inset-top)); }
+            .lb-footer { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+        }
+
+        @media (max-width: 640px) {
+            #main-header {
+                flex-wrap: wrap;
+                gap: 8px;
+                padding: 10px 12px;
+                padding-top: calc(10px + env(safe-area-inset-top, 0px));
+            }
+            #main-header > .flex:first-child { width: 100%; }
+            #main-header > .flex:last-child {
+                width: 100%;
+                justify-content: space-between;
+            }
+            #search-wrap { flex: 1; min-width: 0; }
+            #search-input {
+                width: 100% !important;
+                font-size: 16px;
+            }
+            #search-input:focus { width: 100% !important; }
+            .view-tab { padding: 6px 10px !important; }
+            #trash-btn span, #people-btn span, #select-btn span { display: none; }
+            #trash-btn, #people-btn, #select-btn { padding: 6px 10px !important; }
+
+            .lb-nav { width: 44px; height: 60px; font-size: 2rem; }
+            .lb-nav:first-of-type { left: 0; }
+            .lb-nav:last-of-type { right: 0; }
+            .lb-toolbar-btn { width: 44px; height: 44px; }
+
+            .month-header { padding-left: 4px !important; padding-right: 4px !important; }
+
+            .delete-modal-inner { margin: 0 16px; }
+
+            .trash-item { padding: 10px 12px; }
+        }
+
+        @media (max-width: 390px) {
+            .view-tab { padding: 6px 8px !important; font-size: 10px !important; }
+        }
+    </style>
+</head>
+<body class="text-term-white font-mono min-h-screen" style="-webkit-text-size-adjust:100%">
+
+<!-- Top bar -->
+<header id="main-header" class="px-5 py-3 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
+    <div class="flex items-center gap-4">
+        <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1" title="Home">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </a>
+        <div class="w-px h-4 bg-border/60 hidden sm:block"></div>
+        <div class="flex items-baseline gap-3">
+            <span class="text-accent-bright font-bold text-[14px] sm:text-[15px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
+            <span class="text-term-dark text-[11px]" id="photo-count"></span>
+        </div>
+    </div>
+    <div class="flex items-center gap-2 sm:gap-3">
+        <div class="relative" id="search-wrap">
+            <input id="search-input" type="text" placeholder="Search..."
+                   class="w-28 sm:w-44 md:w-56 bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[11px] sm:text-[11px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
+                   autocomplete="off" spellcheck="false">
+            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+        </div>
+        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] font-medium shrink-0">
+            <button id="btn-year"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('year')">Year</button>
+            <button id="btn-month" class="view-tab px-3 sm:px-4 py-1.5 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
+            <button id="btn-grid"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('grid')">Grid</button>
+        </div>
+        <button id="people-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            <span>People</span>
+        </button>
+        <button id="select-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
+            <span>Select</span>
+        </button>
+        <button id="trash-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            <span>Trash</span>
+        </button>
+    </div>
+</header>
+
+<!-- Gallery (photo grid mode) -->
+<main id="gallery" class="px-2 md:px-3 pb-12"></main>
+
+<!-- Gallery (overview mode) -->
+<main id="overview" class="px-3 md:px-5 pb-12 hidden"></main>
+
+<!-- Search results -->
+<main id="search-results" class="px-2 md:px-3 pb-12 hidden"></main>
+
+<div id="sentinel" class="h-1"></div>
+
+<!-- Lightbox -->
+<div id="lightbox">
+    <div class="lb-toolbar">
+        <div class="lb-toolbar-btn" id="lb-close" title="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </div>
+        <div class="lb-counter" id="lb-counter"></div>
+        <div style="display:flex;gap:4px;align-items:center">
+            <div class="lb-toolbar-btn" id="lb-download" title="Download">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            </div>
+            <div class="lb-toolbar-btn delete-btn" id="lb-delete" title="Delete">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            </div>
+        </div>
+    </div>
+    <div class="lb-body">
+        <span class="lb-nav" style="left:8px" id="lb-prev">&#8249;</span>
+        <span class="lb-nav" style="right:8px" id="lb-next">&#8250;</span>
+        <div id="lb-content" class="flex items-center justify-center">
+            <div id="lb-media-wrap"></div>
+        </div>
+    </div>
+    <div class="lb-footer">
+        <div class="lb-date" id="lb-date"></div>
+        <div class="lb-filename" id="lb-filename"></div>
+    </div>
+</div>
+
+<!-- Select action bar -->
+<div id="select-bar">
+    <span class="sel-count" id="sel-count">0 selected</span>
+    <div class="sel-actions">
+        <button class="sel-btn sel-btn-cancel" id="sel-cancel">Cancel</button>
+        <button class="sel-btn sel-btn-download" id="sel-download-btn" disabled>Download</button>
+        <button class="sel-btn sel-btn-name" id="sel-name-btn" disabled>Name Person</button>
+    </div>
+</div>
+
+<!-- People panel -->
+<div id="people-panel">
+    <header class="px-5 py-3 flex items-center justify-between sticky top-0 z-50" style="background:#04070d;box-shadow:0 1px 0 #0c1e30;">
+        <div class="flex items-center gap-4">
+            <div class="text-term-gray hover:text-accent-bright transition-colors cursor-pointer" id="people-back">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </div>
+            <div class="w-px h-4 bg-border/60"></div>
+            <h1 class="text-accent-bright font-bold text-[14px] tracking-[0.2em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase" id="people-title">PEOPLE</h1>
+        </div>
+        <span class="text-term-dark text-[11px]" id="people-subtitle"></span>
+    </header>
+    <div id="people-content" class="flex-1 overflow-y-auto"></div>
+</div>
+
+<!-- Name person modal -->
+<div id="name-person-modal" class="hidden fixed inset-0 z-[1100] flex items-center justify-center" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
+    <div class="bg-bg-panel border border-border rounded-xl p-7 max-w-sm w-full mx-4 font-mono shadow-2xl">
+        <p class="text-term-white text-sm font-medium mb-1">Name this person</p>
+        <p class="text-term-gray text-[11px] mb-5" id="name-modal-sub"></p>
+        <input id="name-person-input" type="text" placeholder="Enter name…"
+               class="w-full bg-bg-tertiary border border-border/70 rounded-lg px-4 py-2.5 text-sm text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all mb-5"
+               autocomplete="off" spellcheck="false">
+        <div class="flex gap-3 justify-end">
+            <button id="name-modal-cancel" class="px-5 py-2 text-xs text-term-gray border border-term-dark rounded-lg hover:border-accent hover:text-term-white transition-all">Cancel</button>
+            <button id="name-modal-save" class="px-5 py-2 text-xs text-accent border border-accent-dim rounded-lg hover:bg-accent-dim/20 transition-all font-medium">Create</button>
+        </div>
+    </div>
+</div>
+
+<!-- Delete confirmation modal -->
+<div id="delete-modal" class="hidden fixed inset-0 z-[1100] flex items-center justify-center" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);">
+    <div class="bg-bg-panel border border-border rounded-xl p-7 max-w-sm mx-4 font-mono shadow-2xl">
+        <p class="text-term-white text-sm font-medium mb-1.5">Move to recycling bin?</p>
+        <p class="text-term-gray text-xs mb-5 leading-relaxed">Auto-deletes after 30 days. Recoverable until then.</p>
+        <div class="flex gap-3 justify-end">
+            <button id="delete-cancel" class="px-5 py-2 text-xs text-term-gray border border-term-dark rounded-lg hover:border-accent hover:text-term-white transition-all">Cancel</button>
+            <button id="delete-confirm" class="px-5 py-2 text-xs text-red-400 border border-red-400/30 rounded-lg hover:bg-red-400/10 transition-all font-medium">Delete</button>
+        </div>
+    </div>
+</div>
+
+<!-- Trash panel -->
+<div id="trash-panel">
+    <header class="px-5 py-3 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
+        <div class="flex items-center gap-4">
+            <div class="text-term-gray hover:text-accent-bright transition-colors cursor-pointer" id="trash-back">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </div>
+            <div class="w-px h-4 bg-border/60"></div>
+            <h1 class="text-accent-bright font-bold text-[14px] tracking-[0.2em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">RECYCLING BIN</h1>
+        </div>
+        <span class="text-term-dark text-[11px]">Auto-purges after 30 days</span>
+    </header>
+    <div id="trash-list" class="flex-1 overflow-y-auto"></div>
+</div>
+
+
+<script>
+window.__PHOTO_DATA__ = {{ photo_data_json | safe }};
+</script>
+<script>
+const gallery = document.getElementById('gallery');
+const overview = document.getElementById('overview');
+const sentinel = document.getElementById('sentinel');
+const lightbox = document.getElementById('lightbox');
+const lbContent = document.getElementById('lb-content');
+const lbMediaWrap = document.getElementById('lb-media-wrap');
+const lbDate = document.getElementById('lb-date');
+const lbCounter = document.getElementById('lb-counter');
+const lbFilename = document.getElementById('lb-filename');
+
+let allItems = [];
+let lbIndex = -1;
+let lbZoomed = false;
+
+const HEADER_H = document.getElementById('main-header').offsetHeight;
+
+function getGridMetrics() {
+    const cols = window.innerWidth >= 1400 ? 7 : window.innerWidth >= 768 ? 5 : 3;
+    const gap = 2;
+    const cs = getComputedStyle(gallery);
+    let contentWidth = gallery.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight);
+    if (contentWidth <= 0) contentWidth = window.innerWidth - 14 - (window.innerWidth >= 768 ? 24 : 16);
+    const cellSize = (contentWidth - (cols - 1) * gap) / cols;
+    return { cols, gap, cellSize };
+}
+
+function calcPlaceholderHeight(count) {
+    const { cols, gap, cellSize } = getGridMetrics();
+    const rows = Math.ceil(count / cols);
+    return rows * cellSize + Math.max(0, rows - 1) * gap;
+}
+
+// ─── View state ───
+let currentView = 'grid';
+let pendingScrollTo = null;
+
+function setView(view) {
+    if (isSearchMode) { searchInput.value = ''; exitSearch(); }
+    currentView = view;
+    ['year', 'month', 'grid'].forEach(v => {
+        document.getElementById('btn-' + v).classList.toggle('active', v === view);
+    });
+
+    if (view === 'year' || view === 'month') {
+        gallery.classList.add('hidden');
+        overview.classList.remove('hidden');
+        overview.classList.remove('view-enter');
+        void overview.offsetWidth;
+        overview.classList.add('view-enter');
+        renderOverview(view);
+    } else {
+        gallery.classList.remove('hidden');
+        overview.classList.add('hidden');
+        gallery.classList.remove('view-enter');
+        void gallery.offsetWidth;
+        gallery.classList.add('view-enter');
+    }
+}
+
+// Pinch to zoom
+let lastPinchDist = 0;
+document.addEventListener('touchstart', (e) => {
+    if (e.touches.length === 2) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastPinchDist = Math.sqrt(dx*dx + dy*dy);
+    }
+});
+document.addEventListener('touchend', () => { lastPinchDist = 0; });
+const VIEW_ORDER = ['year', 'month', 'grid'];
+document.addEventListener('touchmove', (e) => {
+    if (e.touches.length === 2 && lastPinchDist > 0) {
+        const dx = e.touches[0].clientX - e.touches[1].clientX;
+        const dy = e.touches[0].clientY - e.touches[1].clientY;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        const delta = dist - lastPinchDist;
+        if (Math.abs(delta) > 50) {
+            const idx = VIEW_ORDER.indexOf(currentView);
+            if (delta > 0 && idx < VIEW_ORDER.length - 1) setView(VIEW_ORDER[idx + 1]);
+            if (delta < 0 && idx > 0) setView(VIEW_ORDER[idx - 1]);
+            lastPinchDist = dist;
+        }
+    }
+});
+
+// ─── Overview mode (year/month) ───
+let summaryData = null;
+
+async function loadSummary() {
+    if (summaryData) return summaryData;
+    const resp = await fetch('/api/photos/summary');
+    if (resp.status === 401) { window.location.href = '/login'; return null; }
+    summaryData = await resp.json();
+    return summaryData;
+}
+
+function jumpToMonth(monthKey) {
+    currentView = 'grid';
+    ['year', 'month', 'grid'].forEach(v => {
+        document.getElementById('btn-' + v).classList.toggle('active', v === 'grid');
+    });
+    gallery.classList.remove('hidden', 'view-enter');
+    overview.classList.add('hidden');
+
+    const el = document.getElementById('month-' + monthKey);
+    if (!el) return;
+
+    function scrollToTarget() {
+        window.scrollTo({ top: Math.max(0, el.offsetTop - HEADER_H), behavior: 'instant' });
+    }
+
+    scrollToTarget();
+    renderSection(el);
+
+    const allSections = [...gallery.querySelectorAll('section[data-month-key]')];
+    const idx = allSections.indexOf(el);
+    for (let i = Math.max(0, idx - 2); i <= Math.min(allSections.length - 1, idx + 2); i++) {
+        if (allSections[i] !== el) renderSection(allSections[i]);
+    }
+
+    // Corrective scroll: when adjacent sections above render, the target's
+    // offsetTop shifts. Poll until all nearby sections are loaded, then re-scroll.
+    let corrections = 0;
+    function correctScroll() {
+        if (corrections > 30) return;
+        corrections++;
+        const nearbyDone = allSections
+            .slice(Math.max(0, idx - 2), idx + 3)
+            .every(s => s.dataset.loaded === 'done' || s.dataset.loaded === '');
+        if (nearbyDone) {
+            requestAnimationFrame(scrollToTarget);
+            return;
+        }
+        requestAnimationFrame(correctScroll);
+    }
+    requestAnimationFrame(correctScroll);
+}
+
+function buildYearCard(year, count, covers) {
+    const card = document.createElement('div');
+    const cover = covers && covers.length ? covers[0] : null;
+    card.className = 'year-card-new' + (cover ? ' has-photo' : '');
+
+    const bgStyle = cover ? `background-image:url('${cover}')` : '';
+    card.innerHTML =
+        '<div class="year-card-bg' + (cover ? '' : ' no-photo') + '" style="' + bgStyle + '"></div>' +
+        '<div class="year-card-gradient"></div>' +
+        (!cover ? '<div class="year-card-watermark">' + year + '</div>' : '') +
+        '<div class="year-card-content">' +
+            '<div class="year-card-year">' + year + '</div>' +
+            '<div class="year-card-bottom">' +
+                '<span class="year-card-count">' + count.toLocaleString() + '</span>' +
+                '<span class="year-card-unit">photos</span>' +
+            '</div>' +
+        '</div>';
+    return card;
+}
+
+function buildMonthCard(monthName, count, coverUrl) {
+    const card = document.createElement('div');
+    const hasPhoto = !!coverUrl;
+    card.className = 'month-card-new' + (hasPhoto ? '' : ' no-photo');
+    const monthOnly = monthName.split(' ')[0].toUpperCase();
+    const bgStyle = hasPhoto ? 'background-image:url(\'' + coverUrl + '\')' : '';
+    card.innerHTML =
+        '<div class="month-card-bg' + (hasPhoto ? '' : ' no-photo') + '" style="' + bgStyle + '"></div>' +
+        '<div class="month-card-gradient"></div>' +
+        '<div class="month-card-content">' +
+            '<div class="month-card-name">' + monthOnly + '</div>' +
+            '<div class="month-card-count">' + count.toLocaleString() + '</div>' +
+        '</div>';
+    return card;
+}
+
+// ─── Overview rendering ───
+async function renderOverview(view) {
+    overview.innerHTML = '';
+    const data = await loadSummary();
+    if (!data) return;
+
+    if (view === 'year') {
+        const container = document.createElement('div');
+        container.className = 'zoom-year grid gap-3 md:gap-4 py-6';
+        for (const yr of data.years) {
+            const card = buildYearCard(yr.year, yr.count, yr.covers || []);
+            const firstMonth = data.months.find(m => m.year === yr.year);
+            if (firstMonth) card.addEventListener('click', () => jumpToMonth(firstMonth.month_key));
+            container.appendChild(card);
+        }
+        overview.appendChild(container);
+    } else {
+        // Group months by year
+        const byYear = {};
+        for (const mo of data.months) {
+            if (!byYear[mo.year]) byYear[mo.year] = [];
+            byYear[mo.year].push(mo);
+        }
+        const years = [...new Set(data.months.map(m => m.year))];
+
+        for (const yr of years) {
+            const months = byYear[yr];
+            const yearTotal = months.reduce((s, m) => s + m.count, 0);
+
+            const group = document.createElement('div');
+            group.className = 'month-year-group';
+
+            // Year separator
+            const sep = document.createElement('div');
+            sep.className = 'month-year-sep';
+            sep.innerHTML =
+                '<span class="month-year-sep-label">' + yr + '</span>' +
+                '<span class="month-year-sep-line"></span>' +
+                '<span class="month-year-sep-total">' + yearTotal.toLocaleString() + ' photos</span>';
+            group.appendChild(sep);
+
+            // Photo card grid
+            const grid = document.createElement('div');
+            grid.className = 'zoom-month grid gap-2 md:gap-3';
+            for (const mo of months) {
+                const cover = mo.covers && mo.covers.length ? mo.covers[0] : null;
+                const card = buildMonthCard(mo.month, mo.count, cover);
+                const mk = mo.month_key;
+                card.addEventListener('click', () => jumpToMonth(mk));
+                grid.appendChild(card);
+            }
+            group.appendChild(grid);
+            overview.appendChild(group);
+        }
+    }
+}
+
+// ─── Gallery data ───
+const photoData = window.__PHOTO_DATA__ || { groups: [], total: 0, inline: {} };
+let sectionItems = {};
+
+function buildGallery() {
+    gallery.innerHTML = '';
+    allItems = [];
+    sectionItems = {};
+    const groups = photoData.groups || [];
+    const inline = photoData.inline || {};
+    const countEl = document.getElementById('photo-count');
+    if (countEl) countEl.textContent = (photoData.total || 0).toLocaleString() + ' photos';
+
+    for (const group of groups) {
+        const section = document.createElement('section');
+        section.id = 'month-' + group.month_key;
+        section.dataset.monthKey = group.month_key;
+        section.dataset.count = group.count;
+        section.dataset.loaded = '';
+        section.className = 'mb-2';
+
+        const header = document.createElement('div');
+        header.className = 'month-header px-1 md:px-2 pt-5 pb-3 flex items-baseline gap-3';
+        header.innerHTML = '<span class="text-[11px] font-bold tracking-[0.2em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' +
+            group.month.toUpperCase() + '</span>' +
+            '<span class="text-term-dark text-[11px]">' + group.count.toLocaleString() + '</span>';
+        section.appendChild(header);
+
+        const grid = document.createElement('div');
+        grid.className = 'grid zoom-5 gap-[2px]';
+        section.appendChild(grid);
+        gallery.appendChild(section);
+
+        const inlineItems = inline[group.month_key];
+        if (inlineItems && inlineItems.length) {
+            sectionItems[group.month_key] = inlineItems;
+            renderItems(grid, inlineItems);
+            section.dataset.loaded = 'done';
+            requestAnimationFrame(() => header.classList.add('visible'));
+        } else {
+            grid.style.minHeight = calcPlaceholderHeight(group.count) + 'px';
+            sectionObserver.observe(section);
+        }
+    }
+}
+
+function renderItems(grid, items) {
+    grid.style.minHeight = '';
+    for (const item of items) {
+        const idx = allItems.length;
+        allItems.push(item);
+        const container = document.createElement('div');
+        container.className = 'thumb-container skeleton';
+        container.dataset.idx = idx;
+        container.dataset.hash = (item.thumb || '').split('/').pop().replace('.jpg', '');
+        if (item.type === 'video') {
+            const badge = document.createElement('div');
+            badge.className = 'video-badge';
+            badge.textContent = 'VIDEO';
+            container.appendChild(badge);
+        }
+        const img = new Image();
+        img.src = item.thumb || '';
+        img.alt = '';
+        img.decoding = 'async';
+        img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
+        img.onerror = () => container.classList.remove('skeleton');
+        container.appendChild(img);
+        if (item.path) {
+            const dlBtn = document.createElement('div');
+            dlBtn.className = 'dl-btn';
+            dlBtn.title = 'Download';
+            dlBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
+            dlBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                downloadSinglePhoto(item.path);
+            });
+            container.appendChild(dlBtn);
+        }
+        container.addEventListener('click', () => { if (!selectMode) openLightbox(parseInt(container.dataset.idx, 10)); });
+        grid.appendChild(container);
+    }
+}
+
+// ─── Lazy section loader ───
+const sectionObserver = new IntersectionObserver((entries) => {
+    for (const entry of entries) {
+        if (entry.isIntersecting) { loadSection(entry.target); sectionObserver.unobserve(entry.target); }
+    }
+}, { rootMargin: '300px' });
+
+async function loadSection(section) {
+    if (section.dataset.loaded === 'done' || section.dataset.loaded === 'loading') return;
+    section.dataset.loaded = 'loading';
+    const monthKey = section.dataset.monthKey;
+    const header = section.querySelector('.month-header');
+    const grid = section.querySelector('.grid');
+    try {
+        const resp = await fetch('/api/photos/month/' + monthKey);
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const items = await resp.json();
+        sectionItems[monthKey] = items;
+        renderItems(grid, items);
+        section.dataset.loaded = 'done';
+        if (header) requestAnimationFrame(() => header.classList.add('visible'));
+    } catch (e) {
+        section.dataset.loaded = '';
+        console.error('Failed to load month', monthKey, e);
+    }
+}
+
+// ─── Scroll indicator ───
+const scrollIndicator = document.getElementById('scroll-indicator');
+let _scrollTimer = null;
+window.addEventListener('scroll', () => {
+    if (gallery.classList.contains('hidden')) return;
+    const sections = [...gallery.querySelectorAll('section[data-month-key]')];
+    const mid = window.innerHeight / 2;
+    for (let i = sections.length - 1; i >= 0; i--) {
+        const rect = sections[i].getBoundingClientRect();
+        if (rect.top <= mid) {
+            const span = sections[i].querySelector('.month-header span');
+            if (span) { scrollIndicator.textContent = span.textContent; scrollIndicator.classList.add('visible'); }
+            break;
+        }
+    }
+    clearTimeout(_scrollTimer);
+    _scrollTimer = setTimeout(() => scrollIndicator.classList.remove('visible'), 1200);
+}, { passive: true });
+
+// ─── Lightbox ───
+function openLightbox(idx) {
+    if (idx < 0 || idx >= allItems.length) return;
+    lbIndex = idx;
+    lbZoomed = false;
+    lightbox.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    showLbItem(idx);
+}
+
+function closeLightbox() {
+    lightbox.classList.remove('active');
+    document.body.style.overflow = '';
+    lbMediaWrap.innerHTML = '';
+    lbIndex = -1;
+    lbZoomed = false;
+}
+
+function showLbItem(idx) {
+    if (idx < 0 || idx >= allItems.length) return;
+    lbIndex = idx;
+    const item = allItems[idx];
+    lbCounter.textContent = (idx + 1) + ' / ' + allItems.length;
+    if (item.date) {
+        const d = new Date(item.date * 1000);
+        lbDate.textContent = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    } else { lbDate.textContent = ''; }
+    lbFilename.textContent = item.path ? item.path.split('/').pop() : '';
+    lbMediaWrap.innerHTML = '';
+    const bgWrap = document.createElement('div');
+    bgWrap.className = 'lb-thumb-bg';
+    const bgImg = document.createElement('img');
+    bgImg.src = item.thumb || '';
+    bgWrap.appendChild(bgImg);
+    lbMediaWrap.appendChild(bgWrap);
+    const loading = document.createElement('div');
+    loading.className = 'lb-loading';
+    loading.textContent = 'Loading\u2026';
+    lbMediaWrap.appendChild(loading);
+    if (item.type === 'video') {
+        const mediaPath = (item.path || '').replace('/srv/mergerfs/PROMETHEUS', '').replace('/Volumes/PROMETHEUS', '');
+        const video = document.createElement('video');
+        video.src = '/media' + mediaPath;
+        video.controls = true;
+        video.style.cssText = 'position:relative;z-index:1;max-width:95vw;max-height:calc(100vh - 140px)';
+        video.oncanplay = () => { loading.remove(); bgWrap.remove(); };
+        lbMediaWrap.appendChild(video);
+    } else {
+        const img = document.createElement('img');
+        img.style.cssText = 'position:relative;z-index:1';
+        img.onload = () => loading.remove();
+        img.onerror = () => { loading.textContent = 'Failed to load'; };
+        img.addEventListener('click', () => { lbZoomed = !lbZoomed; img.classList.toggle('lb-zoomed', lbZoomed); });
+        img.src = item.thumb_hq || item.thumb || '';
+        lbMediaWrap.appendChild(img);
+    }
+}
+
+document.getElementById('lb-close').addEventListener('click', closeLightbox);
+document.getElementById('lb-prev').addEventListener('click', () => { if (lbIndex > 0) showLbItem(lbIndex - 1); });
+document.getElementById('lb-next').addEventListener('click', () => { if (lbIndex < allItems.length - 1) showLbItem(lbIndex + 1); });
+document.getElementById('lb-download').addEventListener('click', () => {
+    if (lbIndex < 0 || lbIndex >= allItems.length) return;
+    const item = allItems[lbIndex];
+    if (!item.path) return;
+    downloadSinglePhoto(item.path);
+});
+
+document.addEventListener('keydown', (e) => {
+    if (!lightbox.classList.contains('active')) return;
+    if (e.key === 'Escape') { closeLightbox(); return; }
+    if (e.key === 'ArrowLeft' && lbIndex > 0) showLbItem(lbIndex - 1);
+    if (e.key === 'ArrowRight' && lbIndex < allItems.length - 1) showLbItem(lbIndex + 1);
+});
+
+let _lbTouchX = 0;
+lightbox.addEventListener('touchstart', (e) => { _lbTouchX = e.touches[0].clientX; }, { passive: true });
+lightbox.addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - _lbTouchX;
+    if (Math.abs(dx) > 50) {
+        if (dx < 0 && lbIndex < allItems.length - 1) showLbItem(lbIndex + 1);
+        if (dx > 0 && lbIndex > 0) showLbItem(lbIndex - 1);
+    }
+});
+
+// ─── Delete ───
+const deleteModal = document.getElementById('delete-modal');
+let _deleteItem = null, _deleteIdx = -1;
+document.getElementById('lb-delete').addEventListener('click', () => {
+    if (lbIndex < 0 || lbIndex >= allItems.length) return;
+    _deleteItem = allItems[lbIndex]; _deleteIdx = lbIndex;
+    deleteModal.classList.remove('hidden');
+});
+document.getElementById('delete-cancel').addEventListener('click', () => {
+    deleteModal.classList.add('hidden'); _deleteItem = null;
+});
+document.getElementById('delete-confirm').addEventListener('click', async () => {
+    if (!_deleteItem) return;
+    const item = _deleteItem, idx = _deleteIdx;
+    deleteModal.classList.add('hidden'); _deleteItem = null;
+    try {
+        const resp = await fetch('/api/photos/delete', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ path: item.path })
+        });
+        if (!resp.ok) { console.error('Delete failed'); return; }
+        allItems.splice(idx, 1);
+        document.querySelectorAll('.thumb-container[data-idx]').forEach(el => {
+            const i = parseInt(el.dataset.idx, 10); if (i > idx) el.dataset.idx = i - 1;
+        });
+        const thumb = document.querySelector('.thumb-container[data-idx= + idx + ]');
+        if (thumb) thumb.remove();
+        if (!allItems.length) { closeLightbox(); return; }
+        showLbItem(Math.min(idx, allItems.length - 1));
+    } catch (e) { console.error('Delete error', e); }
+});
+
+// ─── Search ───
+const searchInput = document.getElementById('search-input');
+const searchResultsEl = document.getElementById('search-results');
+let isSearchMode = false, _searchTimer = null, _searchAllItems = null;
+
+searchInput.addEventListener('input', () => {
+    clearTimeout(_searchTimer);
+    const q = searchInput.value.trim();
+    if (!q) { if (isSearchMode) exitSearch(); return; }
+    _searchTimer = setTimeout(() => doSearch(q), 450);
+});
+
+async function doSearch(q) {
+    if (!isSearchMode) { _searchAllItems = allItems.slice(); }
+    isSearchMode = true;
+    gallery.classList.add('hidden');
+    overview.classList.add('hidden');
+    searchResultsEl.classList.remove('hidden');
+    searchResultsEl.innerHTML = '<div class="text-term-gray text-[12px] px-2 py-10 text-center tracking-widest">Searching\u2026</div>';
+    try {
+        const resp = await fetch('/api/photos/search?q=' + encodeURIComponent(q) + '&limit=200');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const data = await resp.json();
+        if (data.error) {
+            searchResultsEl.innerHTML = '<div class="text-term-gray text-[12px] px-2 py-10 text-center">' + data.error + '</div>';
+            return;
+        }
+        const items = data.results || [];
+        searchResultsEl.innerHTML = '';
+        if (!items.length) {
+            searchResultsEl.innerHTML = '<div class="text-term-gray text-[12px] px-2 py-10 text-center">No results for &ldquo;' + q + '&rdquo;</div>';
+            return;
+        }
+        const meta = document.createElement('div');
+        meta.className = 'text-term-gray text-[11px] px-2 py-3 tracking-widest';
+        meta.textContent = items.length + ' results';
+        searchResultsEl.appendChild(meta);
+        const grid = document.createElement('div');
+        grid.className = 'grid zoom-5 gap-[2px]';
+        searchResultsEl.appendChild(grid);
+        allItems = items;
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i];
+            const container = document.createElement('div');
+            container.className = 'thumb-container skeleton';
+            container.dataset.idx = i;
+            if (item.type === 'video') {
+                const badge = document.createElement('div'); badge.className = 'video-badge'; badge.textContent = 'VIDEO';
+                container.appendChild(badge);
+            }
+            const img = new Image(); img.src = item.thumb || ''; img.alt = '';
+            img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
+            img.onerror = () => container.classList.remove('skeleton');
+            container.appendChild(img);
+            container.addEventListener('click', () => openLightbox(i));
+            grid.appendChild(container);
+        }
+    } catch (e) {
+        searchResultsEl.innerHTML = '<div class="text-term-gray text-[12px] px-2 py-10 text-center">Search unavailable</div>';
+    }
+}
+
+function exitSearch() {
+    isSearchMode = false;
+    searchResultsEl.classList.add('hidden');
+    searchResultsEl.innerHTML = '';
+    if (_searchAllItems) { allItems = _searchAllItems; _searchAllItems = null; }
+    if (currentView === 'grid') gallery.classList.remove('hidden');
+    else overview.classList.remove('hidden');
+}
+
+// ─── Trash panel ───
+document.getElementById('trash-btn').addEventListener('click', openTrashPanel);
+document.getElementById('trash-back').addEventListener('click', () => {
+    document.getElementById('trash-panel').classList.remove('active');
+    document.body.style.overflow = '';
+});
+
+async function openTrashPanel() {
+    const panel = document.getElementById('trash-panel');
+    const list = document.getElementById('trash-list');
+    panel.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    list.innerHTML = '<div class="text-term-gray text-[12px] px-5 py-10 text-center">Loading\u2026</div>';
+    try {
+        const resp = await fetch('/api/trash');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const items = await resp.json();
+        if (!items.length) {
+            list.innerHTML = '<div class="text-term-gray text-[12px] px-5 py-10 text-center">Recycling bin is empty.</div>';
+            return;
+        }
+        list.innerHTML = '';
+        for (const item of items) {
+            const row = document.createElement('div');
+            row.className = 'trash-item';
+            const deleted = item.deleted_at ? new Date(item.deleted_at * 1000).toLocaleDateString() : 'Unknown';
+            const tn = item.trash_name || '';
+            const on = item.original_name || tn;
+            row.innerHTML = '<img src="/api/trash/preview/' + tn + '" class="trash-thumb" loading="lazy" onerror="this.style.opacity=0">' +
+                '<div class="trash-info"><div class="text-term-white text-[13px] font-medium overflow-hidden text-ellipsis whitespace-nowrap">' + on + '</div>' +
+                '<div class="text-term-gray text-[11px] mt-1">Deleted ' + deleted + '</div></div>' +
+                '<button class="restore-btn" data-trash="' + tn + '">Restore</button>';
+            list.appendChild(row);
+        }
+        list.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.restore-btn');
+            if (!btn || btn.disabled) return;
+            btn.disabled = true; btn.textContent = '\u2026';
+            try {
+                const r = await fetch('/api/trash/restore', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ trash_name: btn.dataset.trash })
+                });
+                if (r.ok) btn.closest('.trash-item').remove();
+                else { btn.disabled = false; btn.textContent = 'Error'; }
+            } catch { btn.disabled = false; btn.textContent = 'Error'; }
+        });
+    } catch (e) {
+        list.innerHTML = '<div class="text-term-gray text-[12px] px-5 py-10 text-center">Failed to load.</div>';
+    }
+}
+
+
+
+// ─── Select mode ───
+let selectMode = false;
+const selectedHashes = new Set();
+
+document.getElementById('select-btn').addEventListener('click', async () => {
+    selectMode = true;
+    document.body.classList.add('select-mode');
+    document.getElementById('select-bar').classList.add('active');
+    document.getElementById('sel-count').textContent = 'Loading all photos…';
+    document.getElementById('sel-name-btn').disabled = true;
+    document.getElementById('sel-download-btn').disabled = true;
+
+    // Force-load every unloaded section so all 36k photos are selectable
+    const unloaded = [...gallery.querySelectorAll('section[data-month-key]')]
+        .filter(s => s.dataset.loaded !== 'done' && s.dataset.loaded !== 'loading');
+    await Promise.all(unloaded.map(s => loadSection(s)));
+
+    document.getElementById('sel-count').textContent = '0 selected';
+});
+
+document.getElementById('sel-cancel').addEventListener('click', exitSelectMode);
+
+function exitSelectMode() {
+    selectMode = false;
+    selectedHashes.clear();
+    document.body.classList.remove('select-mode');
+    document.getElementById('select-bar').classList.remove('active');
+    document.querySelectorAll('.thumb-container.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function updateSelCount() {
+    const count = selectedHashes.size;
+    document.getElementById('sel-count').textContent = count + ' selected';
+    document.getElementById('sel-name-btn').disabled = count === 0;
+    document.getElementById('sel-download-btn').disabled = count === 0;
+}
+
+// ─── Drag-to-select (mouse) ───
+let _dragActive = false, _dragMoved = false;
+gallery.addEventListener('mousedown', (e) => {
+    if (!selectMode) return;
+    if (!e.target.closest('.thumb-container')) return;
+    _dragActive = true;
+    _dragMoved = false;
+});
+document.addEventListener('mousemove', (e) => {
+    if (!_dragActive || !selectMode) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY);
+    if (!el) return;
+    const container = el.closest('.thumb-container');
+    if (container && !container.classList.contains('selected')) {
+        _dragMoved = true;
+        const h = container.dataset.hash;
+        if (h) {
+            selectedHashes.add(h); container.classList.add('selected'); updateSelCount();
+            const idx2 = parseInt(container.dataset.idx, 10);
+            if (!isNaN(idx2) && allItems[idx2]) _prefetch(allItems[idx2].path);
+        }
+    }
+});
+document.addEventListener('mouseup', () => { _dragActive = false; });
+
+// Capture-phase listener intercepts all thumbnail clicks when in select mode
+document.addEventListener('click', (e) => {
+    if (!selectMode) return;
+    if (_dragMoved) { _dragMoved = false; return; }
+    const container = e.target.closest('.thumb-container');
+    if (!container) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const h = container.dataset.hash;
+    if (!h) return;
+    if (selectedHashes.has(h)) { selectedHashes.delete(h); container.classList.remove('selected'); }
+    else {
+        selectedHashes.add(h); container.classList.add('selected');
+        const pidx = parseInt(container.dataset.idx, 10);
+        if (!isNaN(pidx) && allItems[pidx]) _prefetch(allItems[pidx].path);
+    }
+    updateSelCount();
+}, true);
+
+// ─── Share pre-fetch cache (iOS) ───
+// Files are fetched as JPEG in the background as soon as a photo is selected,
+// so navigator.share() can be called synchronously from the tap (no activation expiry).
+const _shareCache = new Map(); // path -> File
+function _prefetch(path) {
+    if (_shareCache.has(path) || !navigator.share || navigator.maxTouchPoints < 1) return;
+    fetch(_shareUrl(path))
+        .then(r => r.ok ? r.blob() : null)
+        .then(b => {
+            if (!b) return;
+            const mime = _isVideo(path) ? (b.type || 'video/mp4') : 'image/jpeg';
+            _shareCache.set(path, new File([b], _shareFilename(path), { type: mime }));
+        })
+        .catch(() => {});
+}
+
+// ─── Select: download ───
+document.getElementById('sel-download-btn').addEventListener('click', () => {
+    if (!selectedHashes.size) return;
+    const paths = [];
+    document.querySelectorAll('.thumb-container.selected').forEach(el => {
+        const idx = parseInt(el.dataset.idx, 10);
+        if (!isNaN(idx) && allItems[idx] && allItems[idx].path) paths.push(allItems[idx].path);
+    });
+    if (!paths.length) return;
+
+    const btn = document.getElementById('sel-download-btn');
+
+    // DEBUG — remove after diagnosis
+    btn.textContent = `tp:${navigator.maxTouchPoints} sh:${!!navigator.share} proto:${location.protocol}`;
+    btn.disabled = false;
+    setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 4000);
+    return;
+
+    // iOS: call navigator.share() synchronously from the tap so activation is valid
+    if (navigator.maxTouchPoints > 0 && navigator.share) {
+        const cached = paths.map(p => _shareCache.get(p));
+        if (cached.every(Boolean)) {
+            // All files ready — share instantly (synchronous, activation guaranteed)
+            navigator.share({ files: cached }).catch(e => {
+                if (e.name !== 'AbortError')
+                    window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
+            });
+            return;
+        }
+
+        // Some files not cached yet — fetch the missing ones then share
+        // (may lose activation on older iOS but usually fast enough)
+        btn.disabled = true;
+        let done = cached.filter(Boolean).length;
+        btn.textContent = `${done} / ${paths.length}`;
+        Promise.all(paths.map(async (p, i) => {
+            if (cached[i]) return cached[i];
+            const r = await fetch(_shareUrl(p));
+            if (!r.ok) throw new Error(r.status);
+            const b = await r.blob();
+            const mime = _isVideo(p) ? (b.type || 'video/mp4') : 'image/jpeg';
+            const f = new File([b], _shareFilename(p), { type: mime });
+            _shareCache.set(p, f);
+            btn.textContent = `${++done} / ${paths.length}`;
+            return f;
+        })).then(files => {
+            btn.textContent = 'Download'; btn.disabled = selectedHashes.size === 0;
+            return navigator.share({ files });
+        }).catch(e => {
+            btn.textContent = 'Download'; btn.disabled = selectedHashes.size === 0;
+            if (e.name !== 'AbortError')
+                window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
+        });
+        return;
+    }
+
+    window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
+});
+
+document.getElementById('sel-name-btn').addEventListener('click', () => {
+    if (!selectedHashes.size) return;
+    document.getElementById('name-modal-sub').textContent = selectedHashes.size + ' photo' + (selectedHashes.size > 1 ? 's' : '') + ' selected as seed';
+    document.getElementById('name-person-input').value = '';
+    document.getElementById('name-modal-save').textContent = 'Create';
+    document.getElementById('name-modal-save').disabled = false;
+    document.getElementById('name-person-modal').classList.remove('hidden');
+    setTimeout(() => document.getElementById('name-person-input').focus(), 50);
+});
+
+// ─── Name person modal ───
+document.getElementById('name-modal-cancel').addEventListener('click', () => {
+    document.getElementById('name-person-modal').classList.add('hidden');
+});
+
+document.getElementById('name-modal-save').addEventListener('click', async () => {
+    const name = document.getElementById('name-person-input').value.trim();
+    if (!name) return;
+    const btn = document.getElementById('name-modal-save');
+    btn.textContent = 'Creating…'; btn.disabled = true;
+    try {
+        const resp = await fetch('/api/photos/people/create', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ name, photo_hashes: [...selectedHashes] })
+        });
+        const data = await resp.json();
+        if (data.error) throw new Error(data.error);
+        document.getElementById('name-person-modal').classList.add('hidden');
+        exitSelectMode();
+        openPeoplePanel();
+    } catch(e) {
+        btn.textContent = 'Error'; btn.disabled = false;
+        setTimeout(() => { btn.textContent = 'Create'; btn.disabled = false; }, 2000);
+    }
+});
+
+document.getElementById('name-person-input').addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') document.getElementById('name-modal-save').click();
+    if (e.key === 'Escape') document.getElementById('name-modal-cancel').click();
+});
+
+// ─── People panel ───
+document.getElementById('people-btn').addEventListener('click', openPeoplePanel);
+document.getElementById('people-back').addEventListener('click', () => {
+    if (document.getElementById('people-title').textContent !== 'PEOPLE') openPeoplePanel();
+    else { document.getElementById('people-panel').classList.remove('active'); document.body.style.overflow = ''; }
+});
+
+async function openPeoplePanel() {
+    const panel = document.getElementById('people-panel');
+    const content = document.getElementById('people-content');
+    panel.classList.add('active');
+    document.body.style.overflow = 'hidden';
+    document.getElementById('people-title').textContent = 'PEOPLE';
+    document.getElementById('people-subtitle').textContent = '';
+    content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Loading…</div>';
+    try {
+        const resp = await fetch('/api/photos/faces');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const data = await resp.json();
+        const clusters = (data.clusters || []).sort((a, b) => b.photo_count - a.photo_count);
+        content.innerHTML = '';
+        if (!clusters.length) {
+            content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center px-6">No people yet.<br><br>Tap <strong class="text-accent">Select</strong> in the gallery, pick 10–20 photos of someone, then tap <strong class="text-accent">Name Person</strong>.</div>';
+            return;
+        }
+        document.getElementById('people-subtitle').textContent = clusters.length + ' people';
+        const grid = document.createElement('div');
+        grid.className = 'person-grid';
+        for (const c of clusters) {
+            const card = document.createElement('div');
+            card.className = 'person-card';
+            const sf = c.sample_face;
+            card.innerHTML = (sf
+                ? '<img class="person-avatar" src="/static/thumbs/' + sf + '.jpg" loading="lazy" onerror="this.style.opacity=0.15">'
+                : '<div class="person-avatar" style="display:flex;align-items:center;justify-content:center;background:#0c1220"><svg viewBox="0 0 24 24" fill="none" stroke="#2d3a4e" stroke-width="1.5" width="45%"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>')
+                + '<div class="person-name">' + (c.name || 'Unknown') + '</div>'
+                + '<div class="person-count">' + c.photo_count + ' photos</div>';
+            card.addEventListener('click', () => openPersonDetail(c));
+            grid.appendChild(card);
+        }
+        content.appendChild(grid);
+    } catch(e) {
+        content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load.</div>';
+    }
+}
+
+async function openPersonDetail(cluster) {
+    const content = document.getElementById('people-content');
+    document.getElementById('people-title').textContent = cluster.name || 'Unknown';
+    document.getElementById('people-subtitle').textContent = cluster.photo_count + ' photos';
+    content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Loading…</div>';
+    try {
+        const resp = await fetch('/api/photos/face/' + cluster.id);
+        if (!resp.ok) throw new Error();
+        const photos = await resp.json();
+        content.innerHTML = '';
+        const grid = document.createElement('div');
+        grid.className = 'grid zoom-5 gap-[2px] pt-2';
+        for (let i = 0; i < photos.length; i++) {
+            const item = photos[i];
+            const container = document.createElement('div');
+            container.className = 'thumb-container skeleton';
+            if (item.type === 'video') {
+                const badge = document.createElement('div');
+                badge.className = 'video-badge'; badge.textContent = 'VIDEO';
+                container.appendChild(badge);
+            }
+            const img = new Image(); img.src = item.thumb || ''; img.alt = '';
+            img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
+            img.onerror = () => container.classList.remove('skeleton');
+            container.appendChild(img);
+            container.addEventListener('click', () => openLightbox(allItems.indexOf(item)));
+            grid.appendChild(container);
+        }
+        content.appendChild(grid);
+    } catch(e) {
+        content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load.</div>';
+    }
+}
+
+// ─── Download helpers ───
+function _isVideo(path) {
+    return /\.(mov|mp4|m4v|avi|mkv)$/i.test(path);
+}
+
+// Build the fetch URL for sharing: images always requested as JPEG so Web Share API accepts them
+function _shareUrl(path) {
+    if (_isVideo(path)) return '/api/photos/download?p=' + encodeURIComponent(path);
+    return '/api/photos/download?p=' + encodeURIComponent(path) + '&fmt=jpeg';
+}
+
+function _shareFilename(path) {
+    const base = path.split('/').pop();
+    if (_isVideo(path)) return base;
+    return base.replace(/\.[^.]+$/, '.jpg');
+}
+
+async function downloadSinglePhoto(path) {
+    const isMobile = navigator.maxTouchPoints > 0;
+    if (isMobile && navigator.share) {
+        try {
+            const r = await fetch(_shareUrl(path));
+            if (!r.ok) throw new Error(`${r.status}`);
+            const b = await r.blob();
+            const mime = _isVideo(path) ? (b.type || 'video/mp4') : 'image/jpeg';
+            const file = new File([b], _shareFilename(path), { type: mime });
+            await navigator.share({ files: [file] });
+            return;
+        } catch (e) { if (e.name === 'AbortError') return; }
+    }
+    window.location.href = '/api/photos/download?p=' + encodeURIComponent(path);
+}
+
+// ─── Init ───
+buildGallery();
+document.getElementById('btn-grid').classList.add('active');
+</script>
+
+</body>
+</html>

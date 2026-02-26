@@ -1,0 +1,55 @@
+# PROMETHEUS local AI agent stack
+# Starts: Qdrant (vector DB) + OpenHands (agent UI)
+# Ollama runs on the host — NOT in Docker
+#
+# Usage:
+#   docker compose up -d
+#   docker compose down
+#   docker compose logs -f openhands
+
+services:
+
+  # ─── Vector DB ───────────────────────────────────────────────
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: prometheus-qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"   # REST API (localhost only)
+      - "127.0.0.1:6334:6334"   # gRPC
+    volumes:
+      - /srv/qdrant-data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:6333/healthz || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # ─── AI Coding Agent ─────────────────────────────────────────
+  openhands:
+    image: ghcr.io/all-hands-ai/openhands:0.39
+    container_name: prometheus-openhands
+    restart: unless-stopped
+    pull_policy: missing           # don't re-pull on every restart
+    ports:
+      - "3000:3000"
+    environment:
+      # Runtime container (agent's sandbox)
+      SANDBOX_RUNTIME_CONTAINER_IMAGE: ghcr.io/all-hands-ai/runtime:0.39-nikolaik-nikolaik
+      # Point at local Ollama on the host
+      LLM_BASE_URL: http://host.docker.internal:11434
+      LLM_MODEL: ollama/qwen2.5-coder:14b
+      LLM_API_KEY: ollama
+      # Workspace the agent writes to
+      WORKSPACE_MOUNT_PATH: /srv/agent-work
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock   # so it can spin sandbox containers
+      - /srv/openhands-state:/.openhands-state       # settings + session persistence
+      - /srv/agent-work:/opt/workspace_base          # writable workspace
+      # PROMETHEUS pool: read-only so the agent can explore but not nuke it
+      - /srv/mergerfs/PROMETHEUS:/workspace/PROMETHEUS:ro
+    extra_hosts:
+      - "host.docker.internal:host-gateway"          # lets container reach host Ollama
+    depends_on:
+      qdrant:
+        condition: service_healthy

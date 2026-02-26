@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover">
+    <title>PROMETHEON</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#04070d">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    bg:     { DEFAULT: '#04070d', panel: '#070c16', tertiary: '#0a1220' },
+                    accent: { DEFAULT: '#6495ed', bright: '#9ab5f5', dim: '#111d40' },
+                    term:   { white: '#9bbdd4', bright: '#ddf0ff', gray: '#2d4a60', dark: '#101e2d' },
+                    border: '#0c1e30',
+                },
+                fontFamily: {
+                    mono:     ['JetBrains Mono', 'monospace'],
+                    ui:       ['Rajdhani', 'sans-serif'],
+                },
+            }
+        }
+    }
+    </script>
+    <style>
+        html, body { height: 100%; overflow: hidden; -webkit-tap-highlight-color: transparent; }
+        #terminal { height: 100dvh; }
+
+        /* ── Grid background texture ── */
+        #output-area {
+            background-image:
+                linear-gradient(rgba(100,149,237,0.025) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(100,149,237,0.025) 1px, transparent 1px);
+            background-size: 40px 40px;
+        }
+        #output-area::-webkit-scrollbar { width: 3px; }
+        #output-area::-webkit-scrollbar-track { background: transparent; }
+        #output-area::-webkit-scrollbar-thumb { background: #0c1e30; }
+
+        /* ── ASCII art ── */
+        #ascii-art {
+            text-shadow:
+                0 0 6px rgba(100,149,237,0.9),
+                0 0 18px rgba(100,149,237,0.35),
+                0 0 40px rgba(100,149,237,0.12);
+        }
+
+        /* ── Thinking pulse ── */
+        @keyframes think-pulse {
+            0%, 100% { opacity: 0.3; }
+            50%       { opacity: 1; }
+        }
+        .thinking { animation: think-pulse 1.2s ease-in-out infinite; }
+
+        /* ── Header ── */
+        #header {
+            border-bottom: 1px solid #0c1e30;
+            box-shadow: 0 1px 30px rgba(100,149,237,0.06);
+        }
+
+        /* ── Sys info labels ── */
+        .stat-label {
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700;
+            font-size: 10px;
+            letter-spacing: 0.15em;
+            color: #6495ed;
+            text-transform: uppercase;
+        }
+        .stat-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: #9bbdd4;
+        }
+        #info-user, #info-hostname {
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 700;
+            letter-spacing: 0.1em;
+            color: #6495ed;
+        }
+
+        /* ── Input area ── */
+        #input-area {
+            border-top: 1px solid #0c1e30;
+            background: #04070d;
+            box-shadow: 0 -1px 24px rgba(100,149,237,0.04);
+        }
+        #input:focus { outline: none; }
+        .prompt-sigil {
+            font-family: 'JetBrains Mono', monospace;
+            color: #6495ed;
+            text-shadow: 0 0 8px rgba(100,149,237,0.8), 0 0 20px rgba(100,149,237,0.4);
+            font-weight: 500;
+        }
+
+        /* ── Status bar ── */
+        #status-bar {
+            background: #070c16;
+            border-top: 1px solid #0c1e30;
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            font-size: 10px;
+            letter-spacing: 0.12em;
+            text-transform: uppercase;
+        }
+
+        /* ── Disk bars ── */
+        .disk-track { width: 72px; height: 2px; background: #101e2d; }
+        .disk-fill { height: 100%; }
+        .disk-fill.low    { background: #6495ed; box-shadow: 0 0 4px rgba(100,149,237,0.7); }
+        .disk-fill.medium { background: #f0c040; box-shadow: 0 0 4px rgba(240,192,64,0.7); }
+        .disk-fill.high   { background: #ff4a6e; box-shadow: 0 0 4px rgba(255,74,110,0.7); }
+
+        /* ── Message leaders ── */
+        .resp-leader {
+            color: #6495ed;
+            text-shadow: 0 0 8px rgba(100,149,237,0.8), 0 0 20px rgba(100,149,237,0.3);
+        }
+        .user-leader {
+            color: #6495ed;
+            text-shadow: 0 0 6px rgba(100,149,237,0.6);
+        }
+
+        /* ── Copy button ── */
+        .msg-copy-btn {
+            font-family: 'Rajdhani', sans-serif;
+            font-weight: 600;
+            font-size: 9px;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            opacity: 0;
+            transition: opacity 0.15s;
+        }
+        .group:hover .msg-copy-btn { opacity: 1; }
+
+        /* ── Attach icon ── */
+        .attach-btn {
+            color: #2d4a60;
+            transition: color 0.15s;
+            line-height: 1;
+        }
+        .attach-btn:hover { color: #6495ed; }
+
+        /* ── Inline code ── */
+        code {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85em;
+            background: #070c16;
+            border: 1px solid #0c1e30;
+            padding: 1px 5px;
+            color: #9ab5f5;
+        }
+
+        /* ── Separator ── */
+        .sys-sep {
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #0c1e30 30%, #0c1e30 70%, transparent);
+            margin: 4px 0;
+        }
+
+        /* ── Mobile ── */
+        @media (max-width: 768px) {
+            .disk-track { width: 44px; }
+            #ascii-art  { display: none !important; }
+            .msg-copy-btn { opacity: 0.5; }
+        }
+
+        /* ── Safe areas ── */
+        @supports (padding: env(safe-area-inset-top)) {
+            #header     { padding-top: calc(10px + env(safe-area-inset-top)); }
+            #status-bar { padding-bottom: calc(2px + env(safe-area-inset-bottom)); }
+            #input-area { padding-left: calc(12px + env(safe-area-inset-left)); padding-right: calc(12px + env(safe-area-inset-right)); }
+        }
+    </style>
+</head>
+<body class="bg-bg text-term-white font-mono text-[13px]">
+
+<div id="terminal" class="flex flex-col">
+
+    <!-- ── Header ── -->
+    <div id="header" class="bg-bg-panel shrink-0 overflow-x-auto px-3 py-2.5">
+        <div class="flex gap-5 items-start">
+
+            <!-- Nav + sys info -->
+            <div class="shrink-0">
+                <a href="/" class="inline-flex items-center gap-1.5 text-term-gray hover:text-accent transition-colors mb-2"
+                   style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:10px;letter-spacing:0.15em;text-transform:uppercase">
+                    ← HOME
+                </a>
+                <div class="sys-sep"></div>
+                <div id="sys-info" class="mt-2 space-y-0.5">
+                    <div class="flex items-center gap-1">
+                        <span id="info-user" class="text-[13px]">{{ username }}</span>
+                        <span class="text-term-gray text-[11px]">@</span>
+                        <span id="info-hostname" class="text-[13px]">prometheon</span>
+                    </div>
+                    <div class="sys-sep"></div>
+                    <div class="flex items-center gap-2">
+                        <span class="stat-label">OS</span>
+                        <span class="stat-val" id="info-os">—</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="stat-label">UP</span>
+                        <span class="stat-val" id="info-uptime">—</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="stat-label">CPU</span>
+                        <span class="stat-val" id="info-cpu">—</span>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <span class="stat-label">MEM</span>
+                        <span class="stat-val" id="info-memory">—</span>
+                    </div>
+                    <div id="disk-lines"></div>
+                    <div class="flex items-center gap-2">
+                        <span class="stat-label">API</span>
+                        <span class="stat-val" id="info-api">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ASCII art -->
+            <div id="ascii-art" class="text-accent text-[13px] leading-tight whitespace-pre opacity-90 shrink min-w-0 overflow-hidden m-auto font-mono">
+██████╗ ██████╗  ██████╗ ███╗   ███╗███████╗████████╗██╗  ██╗███████╗ ██████╗ ███╗   ██╗
+██╔══██╗██╔══██╗██╔═══██╗████╗ ████║██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔═══██╗████╗  ██║
+██████╔╝██████╔╝██║   ██║██╔████╔██║█████╗     ██║   ███████║█████╗  ██║   ██║██╔██╗ ██║
+██╔═══╝ ██╔══██╗██║   ██║██║╚██╔╝██║██╔══╝     ██║   ██╔══██║██╔══╝  ██║   ██║██║╚██╗██║
+██║     ██║  ██║╚██████╔╝██║ ╚═╝ ██║███████╗   ██║   ██║  ██║███████╗╚██████╔╝██║ ╚████║
+╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝</div>
+
+        </div>
+    </div>
+
+    <!-- ── Output ── -->
+    <div id="output-area" class="flex-1 overflow-y-auto p-4 scroll-smooth">
+        <div class="text-term-gray mb-5 leading-relaxed text-[11px] space-y-0.5"
+             style="font-family:'Rajdhani',sans-serif;font-weight:500;letter-spacing:0.05em">
+            <div>SYSTEM ONLINE — NAS ACCESS ENABLED — VISION ACTIVE</div>
+            <div class="text-term-dark">
+                <span class="text-accent-bright">/trash</span>
+                <span class="ml-3 text-term-gray">bin</span>
+                <span class="ml-4 text-accent-bright">/clear</span>
+                <span class="ml-3 text-term-gray">clear</span>
+                <span class="ml-4 text-accent-bright">/resume</span>
+                <span class="ml-3 text-term-gray">sessions</span>
+                <span class="ml-4 text-accent-bright">/help</span>
+                <span class="ml-3 text-term-gray">help</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Image Preview Strip ── -->
+    <div id="image-preview-strip" class="hidden bg-bg-panel border-t border-border px-3 py-2 flex items-center gap-3 shrink-0">
+        <img id="preview-thumb" src="" alt="" class="h-10 w-10 object-cover shrink-0" style="border:1px solid #0c1e30">
+        <div class="flex-1 min-w-0">
+            <div id="preview-filename" class="text-[10px] text-term-gray truncate"
+                 style="font-family:'Rajdhani',sans-serif;letter-spacing:0.08em"></div>
+            <span class="text-[9px] text-accent font-bold"
+                  style="font-family:'Rajdhani',sans-serif;letter-spacing:0.15em">VISION ENABLED</span>
+        </div>
+        <button id="copy-image-btn" onclick="copyImageToClipboard()"
+                class="text-[9px] text-term-gray hover:text-accent px-2 py-1 transition-colors shrink-0"
+                style="font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:0.12em;border:1px solid #0c1e30">
+            COPY
+        </button>
+        <button onclick="clearImage()"
+                class="text-[9px] text-term-gray hover:text-red-400 px-2 py-1 transition-colors shrink-0"
+                style="font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:0.12em;border:1px solid #0c1e30">
+            CLEAR
+        </button>
+    </div>
+
+    <!-- ── Input ── -->
+    <div id="input-area" class="px-4 py-3 flex items-center gap-3 shrink-0">
+        <input type="file" id="file-input" accept="image/*" class="hidden" onchange="handleFileSelect(event)">
+        <button class="attach-btn shrink-0" onclick="document.getElementById('file-input').click()" title="Attach image">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+            </svg>
+        </button>
+        <span class="prompt-sigil shrink-0 text-[14px]">$</span>
+        <input type="text" id="input" placeholder="Ask anything..."
+               autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"
+               class="flex-1 bg-transparent border-none outline-none text-term-bright font-mono text-[14px] caret-accent min-w-0"
+               style="font-family:'JetBrains Mono',monospace">
+    </div>
+
+    <!-- ── Status bar ── -->
+    <div id="status-bar" class="px-4 py-1 flex justify-between items-center shrink-0 text-term-gray">
+        <div class="flex items-center gap-4">
+            <span id="status-connection" class="text-accent" style="font-size:9px;letter-spacing:0.15em">● CONNECTED</span>
+            <span id="status-model" class="text-[#f0c040]" style="font-size:9px;letter-spacing:0.15em">CLAUDE</span>
+        </div>
+        <div class="flex items-center gap-4" style="font-size:9px;letter-spacing:0.12em">
+            <span id="status-cpu">CPU —%</span>
+            <span id="status-mem" class="hidden md:inline">MEM —%</span>
+            <span id="status-time"></span>
+        </div>
+    </div>
+
+</div>
+
+<script>
+const USERNAME = '{{ username }}';
+const outputArea = document.getElementById('output-area');
+const input = document.getElementById('input');
+let sessionId = 'session_' + Date.now();
+let commandHistory = [];
+let historyIndex = -1;
+let isStreaming = false;
+
+let attachedImage = null;
+
+// ─── Image handling ───
+function readImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+        const dataUrl = ev.target.result;
+        const [header, b64] = dataUrl.split(',');
+        const mime = header.match(/:(.*?);/)[1];
+        attachedImage = { b64, mime, name: file.name };
+        showImagePreview();
+    };
+    reader.readAsDataURL(file);
+}
+
+function showImagePreview() {
+    const strip = document.getElementById('image-preview-strip');
+    strip.classList.remove('hidden');
+    document.getElementById('preview-thumb').src = `data:${attachedImage.mime};base64,${attachedImage.b64}`;
+    document.getElementById('preview-filename').textContent = attachedImage.name;
+}
+
+function clearImage() {
+    attachedImage = null;
+    const strip = document.getElementById('image-preview-strip');
+    strip.classList.add('hidden');
+    document.getElementById('preview-thumb').src = '';
+    document.getElementById('preview-filename').textContent = '';
+}
+
+function handleFileSelect(e) {
+    const file = e.target.files[0];
+    if (file) readImageFile(file);
+    e.target.value = '';
+}
+
+function handlePaste(e) {
+    const items = e.clipboardData?.items || [];
+    for (const item of items) {
+        if (item.type.startsWith('image/')) {
+            e.preventDefault();
+            const file = item.getAsFile();
+            if (file) readImageFile(file);
+            return;
+        }
+    }
+}
+
+async function copyImageToClipboard() {
+    if (!attachedImage) return;
+    try {
+        const byteString = atob(attachedImage.b64);
+        const ab = new ArrayBuffer(byteString.length);
+        const ia = new Uint8Array(ab);
+        for (let i = 0; i < byteString.length; i++) ia[i] = byteString.charCodeAt(i);
+        const blob = new Blob([ab], { type: attachedImage.mime });
+        await navigator.clipboard.write([new ClipboardItem({ [attachedImage.mime]: blob })]);
+        const btn = document.getElementById('copy-image-btn');
+        btn.textContent = 'COPIED';
+        setTimeout(() => btn.textContent = 'COPY', 1500);
+    } catch (e) {
+        console.error('Copy image failed:', e);
+    }
+}
+
+document.addEventListener('paste', handlePaste);
+
+// ─── Mobile: keep input visible above keyboard ───
+input.addEventListener('focus', () => {
+    setTimeout(() => {
+        input.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        outputArea.scrollTop = outputArea.scrollHeight;
+    }, 300);
+});
+
+if (window.visualViewport) {
+    const terminal = document.getElementById('terminal');
+    const onViewportChange = () => {
+        terminal.style.height = window.visualViewport.height + 'px';
+        outputArea.scrollTop = outputArea.scrollHeight;
+    };
+    window.visualViewport.addEventListener('resize', onViewportChange);
+}
+
+// ─── System Info ───
+async function loadSystemInfo() {
+    try {
+        const resp = await fetch('/api/system-info');
+        if (resp.status === 401) { window.location.href = '/login'; return; }
+        const info = await resp.json();
+
+        document.getElementById('info-hostname').textContent = info.hostname;
+        document.getElementById('info-os').textContent = info.os;
+        document.getElementById('info-uptime').textContent = info.uptime;
+        document.getElementById('info-cpu').textContent = info.cpu + ' ' + info.cpu_percent + '%';
+        document.getElementById('info-memory').textContent = info.memory_used + ' / ' + info.memory_total + ' ' + info.memory_percent + '%';
+
+        document.getElementById('status-cpu').textContent = 'CPU ' + info.cpu_percent + '%';
+        document.getElementById('status-mem').textContent = 'MEM ' + info.memory_percent + '%';
+
+        if (info.api_usage) {
+            document.getElementById('info-api').textContent = 'Claude Sonnet 4 · cloud';
+        }
+
+        const diskLines = document.getElementById('disk-lines');
+        diskLines.innerHTML = '';
+        info.disks.filter(d => d.name === 'PROMETHEUS').forEach(d => {
+            const level = d.percent > 90 ? 'high' : d.percent > 70 ? 'medium' : 'low';
+            const name = d.name || d.mount;
+            diskLines.innerHTML += `
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">${name}</span>
+                    <span class="stat-val">${d.used}/${d.total}</span>
+                    <span class="disk-track"><span class="disk-fill ${level}" style="width:${d.percent}%"></span></span>
+                    <span class="stat-val">${d.percent}%</span>
+                </div>`;
+        });
+    } catch (e) {
+        console.error('Failed to load system info:', e);
+    }
+}
+
+// ─── Clock ───
+function updateClock() {
+    document.getElementById('status-time').textContent = new Date().toLocaleTimeString('en-US', {hour12: false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ─── /resume command ───
+async function handleResume(arg) {
+    const resp = await fetch('/api/sessions');
+    if (!resp.ok) { appendMessage('error', 'Failed to fetch sessions.'); return; }
+    const sessions = await resp.json();
+
+    if (!arg) {
+        if (sessions.length === 0) {
+            appendMessage('assistant', 'No saved sessions found.');
+            return;
+        }
+        let text = 'SAVED SESSIONS:\n' + '─'.repeat(50) + '\n';
+        sessions.forEach((s, i) => {
+            text += `  ${String(i + 1).padStart(2)}. ${s.title}`;
+            if (s.updated_at_str) text += `  —  ${s.updated_at_str}`;
+            text += ` (${s.message_count} msgs)\n`;
+        });
+        text += '\nUse /resume <number> to restore a session.';
+        appendMessage('assistant', text);
+        return;
+    }
+
+    const idx = parseInt(arg, 10) - 1;
+    if (isNaN(idx) || idx < 0 || idx >= sessions.length) {
+        appendMessage('error', `Session "${arg}" not found. Use /resume to list sessions.`);
+        return;
+    }
+
+    const target = sessions[idx];
+    try {
+        const loadResp = await fetch(`/api/sessions/${encodeURIComponent(target.id)}`);
+        if (!loadResp.ok) { appendMessage('error', 'Failed to load session.'); return; }
+        const loaded = await loadResp.json();
+
+        sessionId = loaded.id;
+
+        outputArea.innerHTML = '';
+        (loaded.display || []).forEach(item => {
+            if (item.role === 'user') {
+                appendMessage('user', item.text);
+            } else {
+                appendMessage('assistant', item.text);
+            }
+        });
+        appendMessage('assistant', `── Session resumed: "${loaded.title}" ──`);
+    } catch (e) {
+        appendMessage('error', 'Error loading session: ' + e.message);
+    }
+}
+
+// ─── Local commands ───
+async function handleLocalCommand(cmd) {
+    if (cmd === '/logout') {
+        await fetch('/api/logout', { method: 'POST' });
+        window.location.href = '/login';
+        return true;
+    }
+    if (cmd === '/trash') {
+        try {
+            const resp = await fetch('/api/trash');
+            const items = await resp.json();
+            if (items.length === 0) {
+                appendMessage('assistant', 'Recycling bin is empty.');
+            } else {
+                let text = 'RECYCLING BIN:\n' + '─'.repeat(40) + '\n';
+                items.forEach(i => {
+                    text += `  ${i.trash_name}\n    Original: ${i.original_path}\n    ${i.age_str} | Purges in ${i.purge_in}d\n`;
+                });
+                appendMessage('assistant', text);
+            }
+        } catch (e) {
+            appendMessage('error', 'Failed to fetch trash: ' + e.message);
+        }
+        return true;
+    }
+    if (cmd === '/clear') {
+        outputArea.innerHTML = '';
+        return true;
+    }
+    if (cmd === '/help') {
+        appendMessage('assistant',
+            'Commands:\n  /trash           — View recycling bin\n  /clear           — Clear terminal\n  /resume          — List saved sessions\n  /resume <number> — Restore a session\n  /help            — Show this help\n\nOtherwise, just type to talk to the AI.\nPaste or attach an image to use Claude vision.'
+        );
+        return true;
+    }
+    if (cmd === '/resume' || cmd.startsWith('/resume ')) {
+        const arg = cmd.replace('/resume', '').trim();
+        await handleResume(arg);
+        return true;
+    }
+    return false;
+}
+
+// ─── Copy button helper ───
+function addCopyButton(div, rawText) {
+    const btn = document.createElement('button');
+    btn.textContent = 'COPY';
+    btn.className = 'msg-copy-btn absolute top-0 right-0 px-1.5 py-0.5 text-term-gray hover:text-accent transition-colors';
+    btn.style.cssText = 'font-family:Rajdhani,sans-serif;font-weight:700;font-size:8px;letter-spacing:0.15em;border:1px solid #0c1e30;background:#04070d';
+    btn.onclick = () => {
+        navigator.clipboard.writeText(rawText).then(() => {
+            btn.textContent = 'COPIED';
+            setTimeout(() => btn.textContent = 'COPY', 1500);
+        }).catch(() => {
+            btn.textContent = 'ERR';
+            setTimeout(() => btn.textContent = 'COPY', 1500);
+        });
+    };
+    div.appendChild(btn);
+}
+
+// ─── Chat ───
+function appendMessage(type, content) {
+    const div = document.createElement('div');
+    div.className = 'mb-3 whitespace-pre-wrap break-words select-text text-[12px] md:text-[13px]';
+
+    if (type === 'user') {
+        div.className += ' text-term-bright';
+        div.innerHTML = '<span class="user-leader font-bold">$ </span>' + escapeHtml(content);
+    } else if (type === 'assistant') {
+        div.className += ' text-term-white leading-relaxed group relative pr-10';
+        div.innerHTML = '<span class="resp-leader font-bold">› </span>' + formatOutput(content);
+        outputArea.appendChild(div);
+        outputArea.scrollTop = outputArea.scrollHeight;
+        addCopyButton(div, content);
+        return div;
+    } else if (type === 'error') {
+        div.className += ' text-red-400';
+        div.textContent = content;
+    } else {
+        return null;
+    }
+
+    outputArea.appendChild(div);
+    outputArea.scrollTop = outputArea.scrollHeight;
+    return div;
+}
+
+let streamRawText = '';
+let currentStreamDiv = null;
+
+function createStreamingMessage() {
+    streamRawText = '';
+    const div = document.createElement('div');
+    div.className = 'mb-3 whitespace-pre-wrap break-words text-term-white leading-relaxed select-text group relative pr-10 text-[12px] md:text-[13px]';
+    div.innerHTML = '<span class="resp-leader font-bold">› </span><span class="stream-content"></span>';
+    outputArea.appendChild(div);
+    currentStreamDiv = div;
+    return div.querySelector('.stream-content');
+}
+
+async function sendMessage(message) {
+    if (isStreaming) return;
+    if (!message.trim() && !attachedImage) return;
+
+    commandHistory.push(message);
+    historyIndex = commandHistory.length;
+
+    if (message.trim()) appendMessage('user', message);
+    if (attachedImage) appendMessage('user', `[image: ${attachedImage.name}]`);
+    input.value = '';
+
+    if (message.trim() && message.startsWith('/') && !attachedImage) {
+        const handled = await handleLocalCommand(message.trim());
+        if (handled) return;
+    }
+
+    const capturedImage = attachedImage;
+    clearImage();
+
+    const thinkingDiv = document.createElement('div');
+    thinkingDiv.className = 'thinking text-accent mb-3 text-[11px]';
+    thinkingDiv.style.cssText = 'font-family:Rajdhani,sans-serif;font-weight:700;letter-spacing:0.2em';
+    thinkingDiv.textContent = '⬡  PROCESSING';
+    outputArea.appendChild(thinkingDiv);
+    outputArea.scrollTop = outputArea.scrollHeight;
+
+    isStreaming = true;
+    input.disabled = true;
+
+    try {
+        const body = {
+            message: message || '',
+            session_id: sessionId,
+        };
+        if (capturedImage) {
+            body.image = capturedImage.b64;
+            body.image_mime = capturedImage.mime;
+        }
+
+        const resp = await fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+
+        if (resp.status === 401) {
+            thinkingDiv.remove();
+            window.location.href = '/login';
+            return;
+        }
+
+        thinkingDiv.remove();
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let streamEl = null;
+        let buffer = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop();
+
+            for (const line of lines) {
+                if (!line.startsWith('data: ')) continue;
+                const data = JSON.parse(line.slice(6));
+
+                if (data.type === 'text') {
+                    if (!streamEl) streamEl = createStreamingMessage();
+                    streamRawText += data.content;
+                    streamEl.innerHTML = formatOutput(streamRawText);
+                    outputArea.scrollTop = outputArea.scrollHeight;
+                } else if (data.type === 'done') {
+                    if (currentStreamDiv && streamRawText) {
+                        addCopyButton(currentStreamDiv, streamRawText);
+                    }
+                    currentStreamDiv = null;
+                    streamEl = null;
+                }
+            }
+        }
+    } catch (e) {
+        thinkingDiv.remove();
+        appendMessage('error', 'Connection error: ' + e.message);
+    }
+
+    isStreaming = false;
+    input.disabled = false;
+    input.focus();
+}
+
+// ─── Helpers ───
+function escapeHtml(str) {
+    const d = document.createElement('div');
+    d.textContent = str;
+    return d.innerHTML;
+}
+
+function formatOutput(text) {
+    let clean = text.replace(/<[^>]+>/g, '');
+    let h = escapeHtml(clean);
+    h = h.replace(/\*\*(.+?)\*\*/g, '<strong class="text-term-bright">$1</strong>');
+    h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
+    h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
+    h = h.replace(/^#{1,3}\s+(.+)$/gm, '<strong class="text-accent-bright">$1</strong>');
+    h = h.replace(/^(\s*)[-*]\s+/gm, '$1  · ');
+    h = h.replace(/^(\s*)\d+\.\s+/gm, '$1  ');
+    h = h.replace(/(\/[\w.\-\/]+)/g, '<span class="text-accent-bright">$1</span>');
+    return h;
+}
+
+// ─── Input handling ───
+input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+        sendMessage(input.value);
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        if (historyIndex > 0) {
+            historyIndex--;
+            input.value = commandHistory[historyIndex];
+        }
+    } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        if (historyIndex < commandHistory.length - 1) {
+            historyIndex++;
+            input.value = commandHistory[historyIndex];
+        } else {
+            historyIndex = commandHistory.length;
+            input.value = '';
+        }
+    }
+});
+
+document.addEventListener('click', (e) => {
+    if (!window.getSelection().toString() && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') input.focus();
+});
+
+// ─── Init ───
+loadSystemInfo();
+setInterval(loadSystemInfo, 5000);
+</script>
+</body>
+</html>

@@ -2,10 +2,14 @@
 // Downloads ALL thumbnails in one streaming request, stores in Cache API.
 // Every subsequent visit: cache-first, zero network for images.
 
-const CACHE = 'prometheon-thumbs-v3';
+const CACHE = 'prometheon-thumbs-v7';
 
 self.addEventListener('install', () => self.skipWaiting());
-self.addEventListener('activate', e => e.waitUntil(self.clients.claim()));
+self.addEventListener('activate', e => e.waitUntil(
+    caches.keys().then(names =>
+        Promise.all(names.filter(n => n !== CACHE).map(n => caches.delete(n)))
+    ).then(() => self.clients.claim())
+));
 
 // Cache-first for thumbnails — instant if cached, fall back to network
 self.addEventListener('fetch', event => {

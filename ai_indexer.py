@@ -37,6 +37,7 @@ FACE_EMB_FILE = AI_DIR / "face_embeddings.npy"
 FACE_CLUSTERS_FILE = AI_DIR / "face_clusters.json"
 FACE_CROPS_DIR = SCRIPT_DIR / "static" / "faces"
 THUMB_DIR = SCRIPT_DIR / "static" / "thumbs"
+SCREENSHOT_HASHES_FILE = AI_DIR / "screenshot_hashes.json"
 
 SAVE_EVERY = 200
 
@@ -299,8 +300,8 @@ def cluster_faces():
         return
 
     INITIAL_THRESH = 0.7  # ArcFace 512-dim normalized embeddings (was 0.42 for dlib 128-dim)
-    MIN_FACES = 3
-    MIN_PHOTOS = 20
+    MIN_FACES = 2
+    MIN_PHOTOS = 5
 
     # Load existing clusters — named+curated ones become locked anchors
     old_clusters = {}
@@ -311,9 +312,9 @@ def cluster_faces():
         except Exception:
             pass
 
-    # Locked clusters: named clusters that have been curated (have excluded_hashes set)
+    # Locked clusters: ALL named clusters are preserved exactly as-is
     locked = {cid: c for cid, c in old_clusters.items()
-              if c.get("name") and "excluded_hashes" in c}
+              if c.get("name")}
     old_names = {}
     for oc in old_clusters.values():
         if oc.get("name"):
@@ -434,7 +435,7 @@ def cluster_faces():
         if len(c_emb_indices) == 0:
             continue
         centroid = embs[c_emb_indices].mean(axis=0)
-        clusters[str(cid)] = {
+        entry = {
             "name": oc["name"],
             "photo_count": len(photo_hashes),
             "face_count": int(len(c_emb_indices)),
@@ -442,6 +443,11 @@ def cluster_faces():
             "photo_hashes": photo_hashes,
             "excluded_hashes": list(excluded),
         }
+        # Preserve user-set fields (avatar, seeds, hidden, etc.)
+        for k in ("avatar_hash", "avatar_bbox", "seed_hashes", "hidden"):
+            if k in oc:
+                entry[k] = oc[k]
+        clusters[str(cid)] = entry
         cid += 1
 
     # Add newly clustered people
@@ -487,16 +493,45 @@ def expand_named_clusters():
         for face in faces:
             emb_to_hash[face["emb_idx"]] = ph
 
-    # Compute centroid for each named person from their current (curated) embeddings
+    # Compute weighted centroid: seeds count 3x, original checkpoint photos 2x, auto-expanded 1x
+    checkpoint_hashes = {}
+    checkpoint_path = FACE_CLUSTERS_FILE.parent / "face_clusters.checkpoint.json"
+    if checkpoint_path.exists():
+        try:
+            with open(checkpoint_path) as f:
+                cp = json.load(f)
+            for cc in cp.values():
+                if cc.get("name"):
+                    for ph in cc.get("photo_hashes", []):
+                        checkpoint_hashes[ph] = cc["name"]
+        except Exception:
+            pass
+
     centroid_cids = []
     centroid_vecs = []
     for cid, c in named.items():
         excluded = set(c.get("excluded_hashes", []))
         ph_set = set(c.get("photo_hashes", [])) - excluded
-        idxs = [idx for idx, ph in emb_to_hash.items() if ph in ph_set and idx < len(embs)]
-        if idxs:
+        seed_set = set(c.get("seed_hashes", []))
+        name = c.get("name", "")
+        cp_set = {ph for ph in ph_set if checkpoint_hashes.get(ph) == name}
+
+        weighted_embs = []
+        for idx, ph in emb_to_hash.items():
+            if ph in ph_set and idx < len(embs):
+                if ph in seed_set:
+                    w = 3.0
+                elif ph in cp_set:
+                    w = 2.0
+                else:
+                    w = 1.0
+                weighted_embs.append((embs[idx], w))
+        if weighted_embs:
             centroid_cids.append(cid)
-            centroid_vecs.append(embs[idxs].mean(axis=0))
+            vecs = np.array([e for e, w in weighted_embs])
+            weights = np.array([w for e, w in weighted_embs])
+            centroid = np.average(vecs, axis=0, weights=weights)
+            centroid_vecs.append(centroid)
 
     if not centroid_vecs:
         print("[expand] Could not compute any centroids.")
@@ -505,33 +540,34 @@ def expand_named_clusters():
     centroid_mat = np.array(centroid_vecs)
     print(f"[expand] {len(centroid_cids)} named people, sweeping {len(emb_to_hash)} face embeddings...")
 
-    # Already-assigned hashes (across all clusters)
-    assigned_hashes = set()
-    for c in clusters.values():
-        assigned_hashes.update(c.get("photo_hashes", []))
-
-    # Threshold: slightly looser than clustering threshold to catch fringe matches
-    ASSIGN_THRESH = 0.50
-    MARGIN = 0.05  # best centroid must be this much closer than second-best
+    # Confident match with clear margin
+    ASSIGN_THRESH = 0.95
+    MARGIN = 0.04  # require clear winner
 
     new_for_cluster = {cid: set() for cid in centroid_cids}
     skipped_ambiguous = 0
 
+    # Per-cluster: track which hashes are already in THAT cluster (not globally)
+    cluster_hashes = {cid: set(clusters[cid].get("photo_hashes", []))
+                      for cid in centroid_cids}
+
     for emb_idx, ph in emb_to_hash.items():
-        if ph in assigned_hashes or emb_idx >= len(embs):
+        if emb_idx >= len(embs):
             continue
         emb = embs[emb_idx]
         dists = np.linalg.norm(centroid_mat - emb, axis=1)
-        sorted_d = np.sort(dists)
-        best_dist = sorted_d[0]
+        best_idx = int(np.argmin(dists))
+        best_dist = float(dists[best_idx])
         if best_dist >= ASSIGN_THRESH:
             continue
-        # Require a clear winner if multiple named people are close
+        sorted_d = np.sort(dists)
         if len(sorted_d) > 1 and (sorted_d[1] - best_dist) < MARGIN:
             skipped_ambiguous += 1
             continue
-        best_cid = centroid_cids[int(np.argmin(dists))]
-        new_for_cluster[best_cid].add(ph)
+        best_cid = centroid_cids[best_idx]
+        # Allow photo in multiple profiles — only skip if already in THIS cluster
+        if ph not in cluster_hashes[best_cid]:
+            new_for_cluster[best_cid].add(ph)
 
     total_added = 0
     for cid, new_hashes in new_for_cluster.items():
@@ -728,8 +764,8 @@ def scan_video_faces(videos):
     elapsed = time.time() - t0
     print(f"\n[video-faces] Done: {total_new_faces} faces in "
           f"{videos_with_faces}/{len(todo)} videos  ({elapsed / 60:.1f}m)  {failed} failed")
-    print("[video-faces] Running cluster_faces() to incorporate video faces…")
-    cluster_faces()
+    print("[video-faces] Running expand to funnel video faces into existing profiles…")
+    expand_named_clusters()
 
 
 # ─── Main ────────────────────────────────────────────────────────────
@@ -847,6 +883,169 @@ def resync_clusters(max_iters=10):
 
 
 
+# ─── Screenshot / Document Classification ────────────────────────────
+
+SCREENSHOT_QUERIES = [
+    "screenshot of phone screen",
+    "text messages conversation screenshot",
+    "scanned document or paper",
+    "receipt or invoice",
+    "computer screen screenshot",
+    "text on a screen or display",
+    "screenshot of a website or app",
+    "meme with text overlay on image",
+]
+
+REAL_PHOTO_QUERIES = [
+    "a photograph of people",
+    "outdoor nature landscape photograph",
+    "a real camera photo of a scene",
+    "portrait photograph",
+]
+
+# Screenshots that contain people should stay in the gallery
+PEOPLE_QUERIES = [
+    "photo of a person or people",
+    "selfie or group photo",
+    "someone's face",
+]
+
+PEOPLE_THRESH = 0.23  # if screenshot scores above this for people, keep it
+
+# High-confidence: screenshot score alone is enough
+CLIP_HIGH_THRESH = 0.27
+# Differential: screenshot_score - real_score > 0 means more screenshot-like
+CLIP_DIFF_THRESH = 0.0
+
+
+def classify_screenshots(photos):
+    """Classify photos as screenshots/documents using CLIP differential scoring + heuristics."""
+    try:
+        import torch
+        import open_clip
+    except ImportError:
+        print("Missing deps. Install on the NAS:")
+        print("  pip install torch open-clip-torch")
+        sys.exit(1)
+
+    clip_hashes, clip_emb = load_clip_index()
+    if clip_emb is None or len(clip_hashes) == 0:
+        print("[screenshots] No CLIP embeddings found. Run ai_indexer.py first.")
+        return
+
+    # Build hash→photo item for filename lookups
+    hash_to_item = {}
+    for p in photos:
+        h = thumb_hash(p)
+        if h:
+            hash_to_item[h] = p
+
+    # Load face index to exclude photos with detected faces
+    faces_with_people = set()
+    if FACE_INDEX_FILE.exists():
+        with open(FACE_INDEX_FILE) as f:
+            face_data = json.load(f)
+        for ph, faces in face_data.items():
+            if faces:
+                faces_with_people.add(ph)
+    print(f"[screenshots] {len(faces_with_people)} photos have detected faces (will be excluded)")
+
+    # ── CLIP-based scoring ──
+    print("[screenshots] Loading CLIP model for text encoding…")
+    model, _, preprocess = open_clip.create_model_and_transforms(
+        "ViT-B-32", pretrained="laion2b_s34b_b79k"
+    )
+    model.eval()
+    tokenizer = open_clip.get_tokenizer("ViT-B-32")
+
+    print("[screenshots] Encoding text queries…")
+    with torch.no_grad():
+        ss_tokens = tokenizer(SCREENSHOT_QUERIES)
+        ss_emb = model.encode_text(ss_tokens)
+        ss_emb = (ss_emb / ss_emb.norm(dim=-1, keepdim=True)).cpu().numpy()
+
+        real_tokens = tokenizer(REAL_PHOTO_QUERIES)
+        real_emb = model.encode_text(real_tokens)
+        real_emb = (real_emb / real_emb.norm(dim=-1, keepdim=True)).cpu().numpy()
+
+        people_tokens = tokenizer(PEOPLE_QUERIES)
+        people_emb = model.encode_text(people_tokens)
+        people_emb = (people_emb / people_emb.norm(dim=-1, keepdim=True)).cpu().numpy()
+
+    # Score all images
+    ss_scores = (clip_emb @ ss_emb.T).max(axis=1)
+    real_scores = (clip_emb @ real_emb.T).max(axis=1)
+    people_scores = (clip_emb @ people_emb.T).max(axis=1)
+    diff_scores = ss_scores - real_scores
+
+    hash_to_idx = {h: i for i, h in enumerate(clip_hashes)}
+
+    # High-confidence CLIP: screenshot score alone is high enough
+    clip_flagged = set()
+    for i, h in enumerate(clip_hashes):
+        if ss_scores[i] >= CLIP_HIGH_THRESH:
+            clip_flagged.add(h)
+    print(f"[screenshots] CLIP high-confidence: {len(clip_flagged)} (ss_score >= {CLIP_HIGH_THRESH})")
+
+    # Differential CLIP for PNGs: screenshot score beats real photo score
+    # Only apply to PNGs — JPGs/HEICs are camera photos where high-conf is enough
+    png_hashes = set()
+    for p in photos:
+        h = thumb_hash(p)
+        if h and p.get("path", "").lower().endswith(".png"):
+            png_hashes.add(h)
+
+    diff_flagged = set()
+    for i, h in enumerate(clip_hashes):
+        if h in png_hashes and diff_scores[i] > CLIP_DIFF_THRESH and h not in clip_flagged:
+            diff_flagged.add(h)
+    print(f"[screenshots] CLIP differential (PNGs only): +{len(diff_flagged)} (ss > real)")
+
+    # ── Filename heuristics (covers photos without CLIP embeddings) ──
+    name_flagged = set()
+    clip_hash_set = set(clip_hashes)
+    for p in photos:
+        h = thumb_hash(p)
+        if not h:
+            continue
+        path = p.get("path", "").lower()
+        fname = os.path.basename(path)
+        # PNGs without CLIP embeddings — can't score them, assume screenshot
+        if path.endswith(".png") and h not in clip_hash_set:
+            name_flagged.add(h)
+        # Files with screenshot-related names
+        for kw in ("screenshot", "screen shot", "screen_shot", "screencapture", "screen capture"):
+            if kw in fname:
+                name_flagged.add(h)
+                break
+
+    print(f"[screenshots] Filename heuristics: +{len(name_flagged)}")
+
+    # ── Combine and exclude photos with faces or people ──
+    all_flagged = clip_flagged | diff_flagged | name_flagged
+    before_exclude = len(all_flagged)
+    all_flagged -= faces_with_people
+    face_excluded = before_exclude - len(all_flagged)
+    print(f"[screenshots] {face_excluded} excluded (have detected faces)")
+
+    # Also exclude screenshots that CLIP thinks contain people
+    people_excluded = set()
+    for h in list(all_flagged):
+        idx = hash_to_idx.get(h)
+        if idx is not None and people_scores[idx] >= PEOPLE_THRESH:
+            people_excluded.add(h)
+    all_flagged -= people_excluded
+    print(f"[screenshots] {len(people_excluded)} excluded (CLIP detected people in screenshot)")
+    print(f"[screenshots] Final: {len(all_flagged)} screenshots/documents")
+
+    # Save
+    AI_DIR.mkdir(parents=True, exist_ok=True)
+    with open(SCREENSHOT_HASHES_FILE, "w") as f:
+        json.dump(sorted(all_flagged), f)
+
+    print(f"[screenshots] Saved to {SCREENSHOT_HASHES_FILE}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI photo indexer for PROMETHEON")
     parser.add_argument("--faces", action="store_true", help="Also detect and cluster faces")
@@ -855,6 +1054,7 @@ def main():
     parser.add_argument("--resync", action="store_true", help="Reassign photos to correct clusters based on face centroids")
     parser.add_argument("--rescan-faces", action="store_true", help="Wipe face data and rescan from scratch (higher quality)")
     parser.add_argument("--video-faces", action="store_true", help="Detect faces in videos using ffmpeg frame extraction")
+    parser.add_argument("--classify-screenshots", action="store_true", help="Classify screenshots/documents via CLIP and remove from gallery")
     args = parser.parse_args()
 
     if not PHOTO_INDEX.exists():
@@ -893,6 +1093,11 @@ def main():
     if args.video_faces:
         scan_video_faces(videos)
         print("\nRestart the PROMETHEON server to reload face clusters.")
+        return
+
+    if args.classify_screenshots:
+        classify_screenshots(images)
+        print("\nRestart the PROMETHEON server to apply screenshot filtering.")
         return
 
     scan_clip(images)

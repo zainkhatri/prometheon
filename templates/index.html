@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" class="h-full">
+<html lang="en" class="h-full" style="background:#04070d">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover">
@@ -31,7 +31,16 @@
     </script>
     <style>
         html, body { height: 100%; overflow: hidden; -webkit-tap-highlight-color: transparent; }
-        #terminal { height: 100dvh; }
+
+        #pg-overlay {
+            position: fixed; inset: 0; background: #04070d;
+            z-index: 9999; pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+
+        #terminal {
+            height: 100dvh;
+        }
 
         /* ── Grid background texture ── */
         #output-area {
@@ -43,14 +52,6 @@
         #output-area::-webkit-scrollbar { width: 3px; }
         #output-area::-webkit-scrollbar-track { background: transparent; }
         #output-area::-webkit-scrollbar-thumb { background: #0c1e30; }
-
-        /* ── ASCII art ── */
-        #ascii-art {
-            text-shadow:
-                0 0 6px rgba(100,149,237,0.9),
-                0 0 18px rgba(100,149,237,0.35),
-                0 0 40px rgba(100,149,237,0.12);
-        }
 
         /* ── Thinking pulse ── */
         @keyframes think-pulse {
@@ -168,7 +169,6 @@
         /* ── Mobile ── */
         @media (max-width: 768px) {
             .disk-track { width: 44px; }
-            #ascii-art  { display: none !important; }
             .msg-copy-btn { opacity: 0.5; }
         }
 
@@ -181,61 +181,69 @@
     </style>
 </head>
 <body class="bg-bg text-term-white font-mono text-[13px]">
+<div id="pg-overlay"></div>
 
 <div id="terminal" class="flex flex-col">
 
     <!-- ── Header ── -->
-    <div id="header" class="bg-bg-panel shrink-0 overflow-x-auto px-3 py-2.5">
-        <div class="flex gap-5 items-start">
+    <div id="header" class="bg-bg-panel shrink-0 px-4 pt-2 pb-3">
 
-            <!-- Nav + sys info -->
-            <div class="shrink-0">
-                <a href="/" class="inline-flex items-center gap-1.5 text-term-gray hover:text-accent transition-colors mb-2"
-                   style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:10px;letter-spacing:0.15em;text-transform:uppercase">
-                    ← HOME
-                </a>
-                <div class="sys-sep"></div>
-                <div id="sys-info" class="mt-2 space-y-0.5">
-                    <div class="flex items-center gap-1">
-                        <span id="info-user" class="text-[13px]">{{ username }}</span>
-                        <span class="text-term-gray text-[11px]">@</span>
-                        <span id="info-hostname" class="text-[13px]">prometheon</span>
-                    </div>
-                    <div class="sys-sep"></div>
-                    <div class="flex items-center gap-2">
-                        <span class="stat-label">OS</span>
-                        <span class="stat-val" id="info-os">—</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="stat-label">UP</span>
-                        <span class="stat-val" id="info-uptime">—</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="stat-label">CPU</span>
-                        <span class="stat-val" id="info-cpu">—</span>
-                    </div>
-                    <div class="flex items-center gap-2">
-                        <span class="stat-label">MEM</span>
-                        <span class="stat-val" id="info-memory">—</span>
-                    </div>
-                    <div id="disk-lines"></div>
-                    <div class="flex items-center gap-2">
-                        <span class="stat-label">API</span>
-                        <span class="stat-val" id="info-api">—</span>
-                    </div>
-                </div>
+        <!-- Nav row -->
+        <div class="flex items-center gap-3 mb-2">
+            <a href="/" class="flex items-center gap-1.5 text-term-gray hover:text-accent transition-colors"
+               style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:10px;letter-spacing:0.15em;text-transform:uppercase">
+                ← HOME
+            </a>
+            <span style="color:#0c1e30">│</span>
+            <div class="flex items-center gap-1">
+                <span id="info-user" style="font-family:'Rajdhani',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.1em;color:#6495ed">{{ username }}</span>
+                <span class="text-term-gray" style="font-size:9px">@</span>
+                <span id="info-hostname" style="font-family:'Rajdhani',sans-serif;font-weight:700;font-size:10px;letter-spacing:0.1em;color:#6495ed">PROMETHEON</span>
             </div>
+        </div>
+        <div class="sys-sep" style="margin-bottom:8px"></div>
 
-            <!-- ASCII art -->
-            <div id="ascii-art" class="text-accent text-[13px] leading-tight whitespace-pre opacity-90 shrink min-w-0 overflow-hidden m-auto font-mono">
+        <!-- ASCII + stats row -->
+        <div class="flex items-center gap-6 min-w-0">
+
+            <!-- ASCII art — shrinks to fit, never grows beyond natural width -->
+            <div id="ascii-wrap" style="overflow:hidden;min-width:0;flex:0 1 auto">
+                <div id="ascii-art" class="font-mono" style="color:#6495ed;font-size:13px;line-height:1.15;white-space:pre;transform-origin:left center;text-shadow:0 0 6px rgba(100,149,237,0.9),0 0 18px rgba(100,149,237,0.35),0 0 40px rgba(100,149,237,0.12);opacity:0.85">
 ██████╗ ██████╗  ██████╗ ███╗   ███╗███████╗████████╗██╗  ██╗███████╗ ██████╗ ███╗   ██╗
 ██╔══██╗██╔══██╗██╔═══██╗████╗ ████║██╔════╝╚══██╔══╝██║  ██║██╔════╝██╔═══██╗████╗  ██║
 ██████╔╝██████╔╝██║   ██║██╔████╔██║█████╗     ██║   ███████║█████╗  ██║   ██║██╔██╗ ██║
 ██╔═══╝ ██╔══██╗██║   ██║██║╚██╔╝██║██╔══╝     ██║   ██╔══██║██╔══╝  ██║   ██║██║╚██╗██║
 ██║     ██║  ██║╚██████╔╝██║ ╚═╝ ██║███████╗   ██║   ██║  ██║███████╗╚██████╔╝██║ ╚████║
 ╚═╝     ╚═╝  ╚═╝ ╚═════╝ ╚═╝     ╚═╝╚══════╝   ╚═╝   ╚═╝  ╚═╝╚══════╝ ╚═════╝ ╚═╝  ╚═══╝</div>
+            </div>
+
+            <!-- Stats column -->
+            <div class="shrink-0 space-y-0.5" style="border-left:1px solid #0c1e30;padding-left:20px">
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">OS</span>
+                    <span class="stat-val" id="info-os">—</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">UP</span>
+                    <span class="stat-val" id="info-uptime">—</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">CPU</span>
+                    <span class="stat-val" id="info-cpu">—</span>
+                </div>
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">MEM</span>
+                    <span class="stat-val" id="info-memory">—</span>
+                </div>
+                <div id="disk-lines"></div>
+                <div class="flex items-center gap-2">
+                    <span class="stat-label">API</span>
+                    <span class="stat-val" id="info-api">—</span>
+                </div>
+            </div>
 
         </div>
+
     </div>
 
     <!-- ── Output ── -->
@@ -308,6 +316,35 @@
 </div>
 
 <script>
+// ─── Page transitions ───
+(function() {
+    const ov = document.getElementById('pg-overlay');
+    document.fonts.ready.then(() => {
+        requestAnimationFrame(() => { ov.style.opacity = '0'; });
+    });
+    document.addEventListener('click', function(e) {
+        const a = e.target.closest('a[href]');
+        if (!a || !a.href) return;
+        let url; try { url = new URL(a.href); } catch { return; }
+        if (url.origin !== location.origin) return;
+        if (a.target || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        const dest = a.href;
+        ov.style.opacity = '1';
+        setTimeout(() => { location.href = dest; }, 160);
+    });
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            ov.style.transition = 'none';
+            ov.style.opacity = '1';
+            requestAnimationFrame(() => {
+                ov.style.transition = 'opacity 0.15s ease';
+                ov.style.opacity = '0';
+            });
+        }
+    });
+})();
+
 const USERNAME = '{{ username }}';
 const outputArea = document.getElementById('output-area');
 const input = document.getElementById('input');
@@ -735,6 +772,28 @@ input.addEventListener('keydown', (e) => {
 document.addEventListener('click', (e) => {
     if (!window.getSelection().toString() && e.target.tagName !== 'BUTTON' && e.target.tagName !== 'A') input.focus();
 });
+
+// ─── ASCII banner scale ───
+(function scaleAscii() {
+    const wrap = document.getElementById('ascii-wrap');
+    const art  = document.getElementById('ascii-art');
+    if (!wrap || !art) return;
+    function fit() {
+        art.style.transform      = 'none';
+        art.style.marginBottom   = '0';
+        const bw = art.scrollWidth;
+        const ww = wrap.clientWidth;
+        if (bw > ww && bw > 0) {
+            const s = ww / bw;
+            art.style.transform    = 'scale(' + s + ')';
+            art.style.transformOrigin = 'left center';
+            art.style.marginBottom = '-' + (art.offsetHeight * (1 - s)) + 'px';
+        }
+    }
+    fit();
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(fit);
+    window.addEventListener('resize', fit);
+})();
 
 // ─── Init ───
 loadSystemInfo();

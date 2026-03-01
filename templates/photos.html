@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#04070d">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -32,10 +32,20 @@
     </script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        body { background: #04070d; -webkit-text-size-adjust: 100%; }
-        ::-webkit-scrollbar { width: 4px; }
-        ::-webkit-scrollbar-track { background: transparent; }
-        ::-webkit-scrollbar-thumb { background: #0c1e30; border-radius: 2px; min-height: 40px; }
+
+        #pg-overlay {
+            position: fixed; inset: 0; background: #04070d;
+            z-index: 9999; pointer-events: none;
+            transition: opacity 0.15s ease;
+        }
+
+        body {
+            background: #04070d;
+            -webkit-text-size-adjust: 100%;
+        }
+        ::-webkit-scrollbar { width: 14px; }
+        ::-webkit-scrollbar-track { background: #060e18; }
+        ::-webkit-scrollbar-thumb { background: #1a3050; border-radius: 7px; min-height: 60px; border: 3px solid #060e18; }
         ::-webkit-scrollbar-thumb:hover { background: #2d4a60; }
         ::-webkit-scrollbar-thumb:active { background: #6495ed; }
 
@@ -60,37 +70,30 @@
         .thumb-container:active { opacity: 0.8; }
         .video-badge {
             position: absolute;
-            bottom: 6px;
-            right: 6px;
-            background: rgba(0,0,0,0.82);
-            border: 1px solid rgba(100,149,237,0.2);
-            padding: 2px 7px;
-            font-family: 'Rajdhani', sans-serif;
-            font-size: 9px;
-            font-weight: 700;
-            color: #9ab5f5;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            width: 36px;
+            height: 36px;
+            background: rgba(0,0,0,0.55);
+            border: 2px solid rgba(255,255,255,0.85);
+            border-radius: 50%;
             pointer-events: none;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-        }
-        .dl-btn {
-            position: absolute;
-            bottom: 6px;
-            left: 6px;
-            width: 26px;
-            height: 26px;
-            background: rgba(0,0,0,0.78);
-            border: 1px solid rgba(100,149,237,0.22);
             display: flex;
             align-items: center;
             justify-content: center;
-            opacity: 0;
-            transition: opacity 0.15s;
-            cursor: pointer;
-            z-index: 5;
-            color: #9ab5f5;
+            z-index: 2;
         }
-        .thumb-container:hover .dl-btn { opacity: 1; }
+        .video-badge::after {
+            content: '';
+            display: block;
+            width: 0;
+            height: 0;
+            border-style: solid;
+            border-width: 6px 0 6px 11px;
+            border-color: transparent transparent transparent rgba(255,255,255,0.9);
+            margin-left: 2px;
+        }
         body.select-mode .dl-btn { display: none; }
 
         /* Grid columns */
@@ -109,25 +112,46 @@
             .zoom-year { grid-template-columns: repeat(3, 1fr); }
         }
 
-        /* Lightbox */
+        /* Lightbox — immersive photo viewer */
         #lightbox {
             display: none;
             position: fixed;
             inset: 0;
             z-index: 1000;
-            background: rgba(0,0,0,0.97);
-            flex-direction: column;
+            background: #000;
+            cursor: none;
         }
-        #lightbox.active { display: flex; }
+        #lightbox.active { display: block; }
+        #lightbox.lb-ui-visible { cursor: default; }
 
-        .lb-toolbar {
+        /* Overlay UI — fades in/out */
+        .lb-overlay {
+            position: absolute;
+            z-index: 10;
+            opacity: 0;
+            transition: opacity 0.3s ease;
+            pointer-events: none;
+        }
+        #lightbox.lb-ui-visible .lb-overlay {
+            opacity: 1;
+            pointer-events: auto;
+        }
+
+        /* Top bar — gradient fade from black */
+        .lb-top {
+            top: 0; left: 0; right: 0;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 10px 12px;
-            flex-shrink: 0;
+            padding: 20px 24px 40px;
+            background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
         }
-        .lb-toolbar-btn {
+        .lb-top-left, .lb-top-right {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .lb-btn {
             width: 40px;
             height: 40px;
             display: flex;
@@ -135,63 +159,123 @@
             justify-content: center;
             cursor: pointer;
             transition: all 0.15s;
-            color: #2d4a60;
+            color: rgba(255,255,255,0.75);
+            border-radius: 50%;
         }
-        .lb-toolbar-btn:hover { background: rgba(100,149,237,0.06); color: #b0cfe0; }
-        .lb-toolbar-btn.delete-btn:hover { color: #ff4a6e; background: rgba(255,74,110,0.08); }
-        .lb-toolbar-btn svg { width: 20px; height: 20px; }
+        .lb-btn:hover { background: rgba(255,255,255,0.12); color: #fff; }
+        .lb-btn.delete-btn:hover { color: #ff4a6e; background: rgba(255,74,110,0.12); }
+        .lb-btn svg { width: 20px; height: 20px; }
 
-        .lb-body {
-            flex: 1;
+        /* Bottom bar — gradient fade from black, date + people */
+        .lb-bottom {
+            bottom: 0; left: 0; right: 0;
+            display: flex;
+            align-items: flex-end;
+            justify-content: space-between;
+            padding: 40px 24px 24px;
+            padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+            background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%);
+        }
+        .lb-info {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .lb-date {
+            color: #fff;
+            font-size: 16px;
+            font-weight: 500;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .lb-counter {
+            color: rgba(255,255,255,0.4);
+            font-size: 12px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .lb-filename { display: none; }
+
+        /* People chips in bottom bar */
+        #lb-people {
             display: flex;
             align-items: center;
-            justify-content: center;
-            position: relative;
-            min-height: 0;
+            gap: 8px;
+            flex-shrink: 0;
         }
+        #lb-people:empty { display: none; }
+        .lb-person {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            padding: 5px 12px 5px 5px;
+            border-radius: 100px;
+            background: rgba(255,255,255,0.1);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.2s;
+        }
+        .lb-person:hover {
+            background: rgba(255,255,255,0.18);
+            border-color: rgba(255,255,255,0.2);
+        }
+        .lb-person-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: rgba(255,255,255,0.05);
+        }
+        .lb-person-name {
+            font-size: 13px;
+            color: #fff;
+            font-weight: 500;
+            max-width: 80px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Nav arrows */
         .lb-nav {
             position: absolute;
             top: 50%;
             transform: translateY(-50%);
             width: 48px;
-            height: 48px;
+            height: 80px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.8rem;
-            color: rgba(255,255,255,0.5);
+            color: rgba(255,255,255,0.6);
             cursor: pointer;
             user-select: none;
             transition: all 0.15s;
             z-index: 10;
-            border-radius: 50%;
+            border-radius: 12px;
+            opacity: 0;
+            pointer-events: none;
         }
+        #lightbox.lb-ui-visible .lb-nav {
+            opacity: 1;
+            pointer-events: auto;
+        }
+        .lb-nav svg { width: 28px; height: 28px; }
         .lb-nav:hover { background: rgba(255,255,255,0.08); color: #fff; }
 
-        .lb-footer {
-            text-align: center;
-            padding: 10px 16px 20px;
-            padding-bottom: calc(20px + env(safe-area-inset-bottom, 0px));
-            flex-shrink: 0;
-        }
-        .lb-date { color: #9ab5f5; font-size: 12px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; }
-        .lb-counter { color: #2d4a60; font-size: 10px; margin-top: 4px; letter-spacing: 0.12em; text-transform: uppercase; }
-        .lb-filename { color: #152030; font-size: 10px; margin-top: 2px; font-family: 'JetBrains Mono', monospace; }
-
+        /* Media area */
         #lb-media-wrap {
-            position: relative;
+            position: absolute;
+            inset: 0;
             display: flex;
             align-items: center;
             justify-content: center;
-            max-width: 95vw;
-            max-height: calc(100vh - 140px);
+            overflow: hidden;
         }
         #lb-media-wrap img,
         #lb-media-wrap video {
-            max-width: 95vw;
-            max-height: calc(100vh - 140px);
+            max-width: 100vw;
+            max-height: 100vh;
             object-fit: contain;
-            transition: opacity 0.25s ease;
         }
         #lb-media-wrap img.lb-zoomed {
             max-width: none;
@@ -199,62 +283,57 @@
             cursor: zoom-out;
         }
         #lb-media-wrap img:not(.lb-zoomed) {
-            cursor: zoom-in;
+            cursor: default;
         }
         .lb-thumb-bg {
             position: absolute;
             inset: 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
             z-index: 0;
+            overflow: hidden;
         }
         .lb-thumb-bg img {
-            max-width: 95vw;
-            max-height: calc(100vh - 140px);
-            object-fit: contain;
-            filter: blur(20px);
-            transform: scale(1.05);
-            opacity: 0.5;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: blur(60px) brightness(0.15) saturate(0.5);
+            transform: scale(1.3);
         }
         .lb-loading {
-            color: #6495ed;
+            color: rgba(255,255,255,0.35);
             font-size: 13px;
-            animation: pulse 1.5s ease-in-out infinite;
+            animation: lb-pulse 2s ease-in-out infinite;
             position: absolute;
             z-index: 1;
-            font-family: 'Rajdhani', sans-serif;
-            font-weight: 700;
-            letter-spacing: 0.2em;
-            text-transform: uppercase;
+            font-weight: 500;
         }
-        @keyframes pulse {
-            0%, 100% { opacity: 0.4; }
-            50% { opacity: 1; }
+        @keyframes lb-pulse {
+            0%, 100% { opacity: 0.2; }
+            50% { opacity: 0.7; }
         }
 
         /* Scroll month indicator */
         #scroll-indicator {
             position: fixed;
-            right: 20px;
+            right: 24px;
             top: 50%;
             transform: translateY(-50%);
-            background: rgba(7,12,22,0.97);
-            border: 1px solid #0c1e30;
+            background: rgba(7,12,22,0.95);
+            border: 1px solid rgba(100,149,237,0.25);
             color: #6495ed;
             font-family: 'Rajdhani', sans-serif;
-            font-size: 11px;
+            font-size: 36px;
             font-weight: 700;
-            letter-spacing: 0.18em;
+            letter-spacing: 0.08em;
             text-transform: uppercase;
-            padding: 7px 14px;
+            padding: 14px 24px;
+            border-radius: 12px;
             pointer-events: none;
             opacity: 0;
-            transition: opacity 0.12s ease;
+            transition: opacity 0.15s ease;
             z-index: 200;
             white-space: nowrap;
-            backdrop-filter: blur(8px);
-            box-shadow: 0 0 20px rgba(100,149,237,0.08);
+            backdrop-filter: blur(12px);
+            box-shadow: 0 0 30px rgba(100,149,237,0.12);
         }
         #scroll-indicator.visible { opacity: 1; }
 
@@ -575,6 +654,7 @@
         #people-panel {
             display: none; position: fixed; inset: 0;
             z-index: 900; background: #04070d; flex-direction: column;
+            overflow-y: auto;
         }
         #people-panel.active { display: flex; }
 
@@ -645,6 +725,132 @@
         .sel-btn-download:hover { background: rgba(100,149,237,0.08); border-color: #6495ed; }
         .sel-btn-download:disabled { opacity: 0.35; cursor: default; pointer-events: none; }
 
+/* ─── Person detail select mode ─── */
+        .photo-ctx-menu {
+            position: fixed;
+            z-index: 990;
+            background: #0e1a2b;
+            border: 1px solid #1a3050;
+            border-radius: 10px;
+            padding: 4px 0;
+            min-width: 150px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+            animation: ctxFadeIn 0.12s ease-out;
+        }
+        @keyframes ctxFadeIn { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .photo-ctx-menu button {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            width: 100%;
+            padding: 10px 16px;
+            background: none;
+            border: none;
+            color: #c8daf0;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 13px;
+            font-weight: 600;
+            letter-spacing: 0.04em;
+            cursor: pointer;
+            text-align: left;
+        }
+        .photo-ctx-menu button:hover { background: rgba(100,149,237,0.12); }
+        .photo-ctx-menu button span.ctx-icon { font-size: 15px; width: 18px; text-align: center; }
+        .photo-ctx-backdrop {
+            position: fixed; inset: 0; z-index: 989;
+        }
+        #person-select-bar {
+            position: fixed; bottom: 0; left: 0; right: 0; z-index: 950;
+            background: #070c16; border-top: 1px solid #0c1e30;
+            padding: 12px 16px; display: none;
+            align-items: center; justify-content: space-between; gap: 10px;
+            padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+        }
+        #person-select-bar.active { display: flex; }
+        .ps-btn {
+            padding: 7px 16px;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 10px; font-weight: 700;
+            letter-spacing: 0.12em; text-transform: uppercase;
+            cursor: pointer; transition: all 0.15s;
+            border: 1px solid; background: none;
+        }
+        .ps-btn-remove { color: #e06060; border-color: #0c1e30; }
+        .ps-btn-remove:hover { background: #1a0c0c; border-color: #e06060; }
+        .ps-btn-remove:disabled { opacity: 0.35; cursor: default; }
+        .ps-btn-move { color: #6495ed; border-color: #0c1e30; }
+        .ps-btn-move:hover { background: #111d40; border-color: #6495ed; }
+        .ps-btn-move:disabled { opacity: 0.35; cursor: default; }
+        .ps-btn-cancel { color: #2d4a60; border-color: #0c1e30; }
+        .ps-btn-cancel:hover { color: #b0cfe0; border-color: #2d4a60; }
+
+        /* Move-to modal */
+        #move-to-modal { display: none; }
+        #move-to-modal.active { display: flex; }
+        .move-to-list {
+            max-height: 50vh; overflow-y: auto;
+            display: flex; flex-direction: column; gap: 4px;
+        }
+        .move-to-item {
+            padding: 10px 14px; cursor: pointer;
+            font-family: 'Rajdhani', sans-serif; font-size: 13px;
+            font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            color: #b0cfe0; background: none; border: 1px solid #0c1e30;
+            transition: all 0.15s; text-align: left;
+        }
+        .move-to-item:hover { background: #111d40; border-color: #6495ed; color: #6495ed; }
+
+
+        /* ─── Face review ─── */
+        .review-card {
+            display: flex; flex-direction: column; align-items: center;
+            padding: 12px; margin: 0 auto; gap: 12px;
+            width: 100%; max-width: 600px;
+        }
+        .review-photo {
+            width: 100%; max-height: calc(100vh - 280px);
+            object-fit: contain; border-radius: 8px;
+        }
+        .review-suggestion {
+            display: flex; align-items: center; gap: 12px;
+            padding: 10px 16px; border: 1px solid #0c1e30; border-radius: 8px;
+            width: 100%; max-width: 400px;
+        }
+        .review-avatar {
+            width: 44px; height: 44px; border-radius: 50%;
+            object-fit: cover; border: 2px solid #1a3050; flex-shrink: 0;
+        }
+        .review-name {
+            font-family: 'Rajdhani', sans-serif; font-size: 16px;
+            font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
+            color: #b0cfe0;
+        }
+        .review-conf {
+            font-family: 'JetBrains Mono', monospace; font-size: 10px; color: #2d4a60;
+        }
+        .review-actions {
+            display: flex; gap: 12px; width: 100%; max-width: 400px;
+        }
+        .review-btn {
+            flex: 1; padding: 12px; border: 1px solid;
+            font-family: 'Rajdhani', sans-serif; font-size: 14px;
+            font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+            cursor: pointer; transition: all 0.15s; border-radius: 8px; background: none;
+        }
+        .review-btn-yes { color: #60e080; border-color: #0c1e30; }
+        .review-btn-yes:hover { background: #0c1a10; border-color: #60e080; }
+        .review-btn-no { color: #e06060; border-color: #0c1e30; }
+        .review-btn-no:hover { background: #1a0c0c; border-color: #e06060; }
+        .review-btn-skip { color: #2d4a60; border-color: #0c1e30; }
+        .review-btn-skip:hover { color: #b0cfe0; border-color: #2d4a60; }
+        .review-progress {
+            width: 100%; max-width: 400px; height: 3px;
+            background: #0c1e30; border-radius: 2px; overflow: hidden;
+        }
+        .review-progress-bar {
+            height: 100%; background: #6495ed; transition: width 0.3s;
+        }
+
         body.select-mode .thumb-container { cursor: pointer !important; }
         .thumb-container.selected::after {
             content: ''; position: absolute; inset: 0;
@@ -667,7 +873,7 @@
         .restore-btn,
         .person-name,
         .lb-date, .lb-counter, .lb-filename,
-        .lb-toolbar-btn,
+        .lb-btn,
         input::placeholder,
         #search-input,
         .video-badge {
@@ -706,10 +912,13 @@
             #trash-btn span, #people-btn span, #select-btn span { display: none; }
             #trash-btn, #people-btn, #select-btn { padding: 6px 10px !important; }
 
-            .lb-nav { width: 44px; height: 60px; font-size: 2rem; }
-            .lb-nav:first-of-type { left: 0; }
-            .lb-nav:last-of-type { right: 0; }
-            .lb-toolbar-btn { width: 44px; height: 44px; }
+            .lb-top, .lb-bottom { padding-left: 16px; padding-right: 16px; }
+            .lb-nav { width: 36px; height: 64px; }
+            .lb-nav svg { width: 24px; height: 24px; }
+            .lb-date { font-size: 14px; }
+            #lb-people .lb-person { padding: 4px 8px 4px 4px; }
+            #lb-people .lb-person-avatar { width: 28px; height: 28px; }
+            #lb-people .lb-person-name { font-size: 11px; }
 
             .month-header { padding-left: 4px !important; padding-right: 4px !important; }
 
@@ -721,9 +930,100 @@
         @media (max-width: 390px) {
             .view-tab { padding: 6px 8px !important; font-size: 10px !important; }
         }
+
+        /* ─── Search suggestions dropdown ─── */
+        #search-suggestions {
+            position: absolute;
+            top: 100%;
+            left: 0;
+            right: 0;
+            margin-top: 4px;
+            background: var(--bg-tertiary, #1a1a2e);
+            border: 1px solid rgba(255,255,255,0.12);
+            border-radius: 8px;
+            overflow: hidden;
+            z-index: 200;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+            max-height: 240px;
+            overflow-y: auto;
+        }
+        #search-suggestions.hidden { display: none; }
+        .suggestion-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 12px;
+            cursor: pointer;
+            transition: background 0.15s;
+            font-family: 'Rajdhani', sans-serif;
+        }
+        .suggestion-row:hover, .suggestion-row.active {
+            background: rgba(255,255,255,0.08);
+        }
+        .suggestion-avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            background: rgba(255,255,255,0.05);
+        }
+        .suggestion-name {
+            font-size: 12px;
+            color: var(--term-white, #e0e0e0);
+            font-weight: 600;
+            flex: 1;
+        }
+        .suggestion-count {
+            font-size: 10px;
+            color: var(--term-gray, #888);
+            font-family: 'JetBrains Mono', monospace;
+        }
+
+        /* ─── People chips in search results ─── */
+        .people-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            padding: 8px 2px 4px;
+        }
+        .person-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 10px 4px 4px;
+            border-radius: 20px;
+            border: 1px solid rgba(255,255,255,0.15);
+            background: rgba(255,255,255,0.05);
+            cursor: pointer;
+            transition: all 0.15s;
+            font-family: 'Rajdhani', sans-serif;
+        }
+        .person-chip:hover {
+            border-color: var(--accent-dim, #5a5aff);
+            background: rgba(90,90,255,0.1);
+        }
+        .chip-avatar {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            object-fit: cover;
+            background: rgba(255,255,255,0.05);
+        }
+        .chip-name {
+            font-size: 11px;
+            color: var(--term-white, #e0e0e0);
+            font-weight: 600;
+        }
+        .chip-count {
+            font-size: 10px;
+            color: var(--term-gray, #888);
+            font-family: 'JetBrains Mono', monospace;
+        }
     </style>
 </head>
 <body class="text-term-white font-mono min-h-screen" style="-webkit-text-size-adjust:100%">
+<div id="pg-overlay"></div>
 
 <!-- Top bar -->
 <header id="main-header" class="px-5 py-3 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
@@ -743,6 +1043,7 @@
                    class="w-28 sm:w-44 md:w-56 bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[11px] sm:text-[11px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
                    autocomplete="off" spellcheck="false">
             <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <div id="search-suggestions" class="hidden"></div>
         </div>
         <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] font-medium shrink-0">
             <button id="btn-year"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('year')">Year</button>
@@ -777,31 +1078,39 @@
 
 <!-- Lightbox -->
 <div id="lightbox">
-    <div class="lb-toolbar">
-        <div class="lb-toolbar-btn" id="lb-close" title="Close">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+    <div id="lb-media-wrap"></div>
+    <span class="lb-nav" style="left:12px" id="lb-prev">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+    </span>
+    <span class="lb-nav" style="right:12px" id="lb-next">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"/></svg>
+    </span>
+    <div class="lb-overlay lb-top">
+        <div class="lb-top-left">
+            <div class="lb-btn" id="lb-close" title="Close">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </div>
         </div>
-        <div class="lb-counter" id="lb-counter"></div>
-        <div style="display:flex;gap:4px;align-items:center">
-            <div class="lb-toolbar-btn" id="lb-download" title="Download">
+        <div class="lb-top-right">
+            <div class="lb-btn" id="lb-rotate" title="Rotate">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 4v6h6"/><path d="M3.51 15a9 9 0 105.64-11.36L1 10"/></svg>
+            </div>
+            <div class="lb-btn" id="lb-download" title="Download">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             </div>
-            <div class="lb-toolbar-btn delete-btn" id="lb-delete" title="Delete">
+            <div class="lb-btn delete-btn" id="lb-delete" title="Delete">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
             </div>
         </div>
     </div>
-    <div class="lb-body">
-        <span class="lb-nav" style="left:8px" id="lb-prev">&#8249;</span>
-        <span class="lb-nav" style="right:8px" id="lb-next">&#8250;</span>
-        <div id="lb-content" class="flex items-center justify-center">
-            <div id="lb-media-wrap"></div>
+    <div class="lb-overlay lb-bottom">
+        <div class="lb-info">
+            <div class="lb-date" id="lb-date"></div>
+            <div class="lb-counter" id="lb-counter"></div>
         </div>
+        <div id="lb-people"></div>
     </div>
-    <div class="lb-footer">
-        <div class="lb-date" id="lb-date"></div>
-        <div class="lb-filename" id="lb-filename"></div>
-    </div>
+    <div class="lb-filename" id="lb-filename" style="display:none"></div>
 </div>
 
 <!-- Select action bar -->
@@ -824,9 +1133,31 @@
             <div class="w-px h-4 bg-border/60"></div>
             <h1 class="text-accent-bright font-bold text-[14px] tracking-[0.2em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase" id="people-title">PEOPLE</h1>
         </div>
-        <span class="text-term-dark text-[11px]" id="people-subtitle"></span>
+        <div class="flex items-center gap-3" id="people-header-right">
+            <span class="text-term-dark text-[11px]" id="people-subtitle"></span>
+        </div>
     </header>
-    <div id="people-content" class="flex-1 overflow-y-auto"></div>
+    <div id="people-content" class="flex-1"></div>
+</div>
+
+<!-- Person select bar (inside people panel) -->
+<div id="person-select-bar">
+    <span class="sel-count" id="ps-count">0 selected</span>
+    <div class="sel-actions">
+        <button class="ps-btn ps-btn-cancel" id="ps-cancel">Cancel</button>
+        <button class="ps-btn ps-btn-move" id="ps-move-btn" disabled>Move To</button>
+        <button class="ps-btn ps-btn-remove" id="ps-remove-btn" disabled>Remove</button>
+    </div>
+</div>
+
+<!-- Move-to person modal -->
+<div id="move-to-modal" class="fixed inset-0 z-[1100] items-center justify-center" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
+    <div class="bg-bg-panel border border-border rounded-xl p-6 max-w-sm w-full mx-4 font-mono shadow-2xl">
+        <p class="text-term-white text-sm font-medium mb-1">Move to person</p>
+        <p class="text-term-gray text-[11px] mb-4" id="move-to-sub"></p>
+        <div class="move-to-list" id="move-to-list"></div>
+        <button class="ps-btn ps-btn-cancel mt-4 w-full" id="move-to-cancel">Cancel</button>
+    </div>
 </div>
 
 <!-- Name person modal -->
@@ -876,6 +1207,33 @@
 window.__PHOTO_DATA__ = {{ photo_data_json | safe }};
 </script>
 <script>
+// ─── Page transitions ───
+(function() {
+    const ov = document.getElementById('pg-overlay');
+    requestAnimationFrame(() => { ov.style.opacity = '0'; });
+    document.addEventListener('click', function(e) {
+        const a = e.target.closest('a[href]');
+        if (!a || !a.href) return;
+        let url; try { url = new URL(a.href); } catch { return; }
+        if (url.origin !== location.origin) return;
+        if (a.target || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        const dest = a.href;
+        ov.style.opacity = '1';
+        setTimeout(() => { location.href = dest; }, 160);
+    });
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            ov.style.transition = 'none';
+            ov.style.opacity = '1';
+            requestAnimationFrame(() => {
+                ov.style.transition = 'opacity 0.15s ease';
+                ov.style.opacity = '0';
+            });
+        }
+    });
+})();
+
 const gallery = document.getElementById('gallery');
 const overview = document.getElementById('overview');
 const sentinel = document.getElementById('sentinel');
@@ -1129,10 +1487,10 @@ function buildGallery() {
         section.className = 'mb-2';
 
         const header = document.createElement('div');
-        header.className = 'month-header px-1 md:px-2 pt-5 pb-3 flex items-baseline gap-3';
-        header.innerHTML = '<span class="text-[11px] font-bold tracking-[0.2em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' +
+        header.className = 'month-header px-1 md:px-2 pt-6 pb-3 flex items-baseline gap-3';
+        header.innerHTML = '<span class="text-[22px] font-bold tracking-[0.12em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' +
             group.month.toUpperCase() + '</span>' +
-            '<span class="text-term-dark text-[11px]">' + group.count.toLocaleString() + '</span>';
+            '<span class="text-term-dark text-[14px]">' + group.count.toLocaleString() + '</span>';
         section.appendChild(header);
 
         const grid = document.createElement('div');
@@ -1165,29 +1523,23 @@ function renderItems(grid, items) {
         if (item.type === 'video') {
             const badge = document.createElement('div');
             badge.className = 'video-badge';
-            badge.textContent = 'VIDEO';
             container.appendChild(badge);
         }
         const img = new Image();
-        img.src = item.thumb || '';
         img.alt = '';
         img.decoding = 'async';
+        img.loading = 'lazy';
         img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
         img.onerror = () => container.classList.remove('skeleton');
         container.appendChild(img);
-        if (item.path) {
-            const dlBtn = document.createElement('div');
-            dlBtn.className = 'dl-btn';
-            dlBtn.title = 'Download';
-            dlBtn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>';
-            dlBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                downloadSinglePhoto(item.path);
-            });
-            container.appendChild(dlBtn);
-        }
+        img.src = item.thumb || '';
         container.addEventListener('click', () => { if (!selectMode) openLightbox(parseInt(container.dataset.idx, 10)); });
+        container.addEventListener('contextmenu', (e) => {
+            if (selectMode) return;
+            e.preventDefault();
+            e.stopPropagation();
+            _showGridMenu(e, container.dataset.hash, parseInt(container.dataset.idx, 10), container);
+        });
         grid.appendChild(container);
     }
 }
@@ -1239,33 +1591,50 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 
 // ─── Lightbox ───
-function openLightbox(idx) {
-    if (idx < 0 || idx >= allItems.length) return;
+let _lbItems = null; // when set, lightbox uses this instead of allItems
+function _getLbItems() { return _lbItems || allItems; }
+
+let _lbUiTimer = null;
+function _lbShowUi() {
+    lightbox.classList.add('lb-ui-visible');
+    clearTimeout(_lbUiTimer);
+    _lbUiTimer = setTimeout(() => lightbox.classList.remove('lb-ui-visible'), 3000);
+}
+
+function openLightbox(idx, customItems) {
+    _lbItems = customItems || null;
+    const items = _getLbItems();
+    if (idx < 0 || idx >= items.length) return;
     lbIndex = idx;
     lbZoomed = false;
     lightbox.classList.add('active');
     document.body.style.overflow = 'hidden';
+    _lbShowUi();
     showLbItem(idx);
 }
 
 function closeLightbox() {
-    lightbox.classList.remove('active');
+    lightbox.classList.remove('active', 'lb-ui-visible');
+    clearTimeout(_lbUiTimer);
     document.body.style.overflow = '';
     lbMediaWrap.innerHTML = '';
     lbIndex = -1;
     lbZoomed = false;
+    _lbItems = null;
 }
 
 function showLbItem(idx) {
-    if (idx < 0 || idx >= allItems.length) return;
+    const items = _getLbItems();
+    if (idx < 0 || idx >= items.length) return;
     lbIndex = idx;
-    const item = allItems[idx];
-    lbCounter.textContent = (idx + 1) + ' / ' + allItems.length;
+    const item = items[idx];
+    lbCounter.textContent = (idx + 1) + ' of ' + items.length;
     if (item.date) {
         const d = new Date(item.date * 1000);
-        lbDate.textContent = d.toLocaleDateString('en-US', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+        lbDate.textContent = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
     } else { lbDate.textContent = ''; }
-    lbFilename.textContent = item.path ? item.path.split('/').pop() : '';
+    lbFilename.textContent = '';
+    _lbShowUi();
     lbMediaWrap.innerHTML = '';
     const bgWrap = document.createElement('div');
     bgWrap.className = 'lb-thumb-bg';
@@ -1278,30 +1647,123 @@ function showLbItem(idx) {
     loading.textContent = 'Loading\u2026';
     lbMediaWrap.appendChild(loading);
     if (item.type === 'video') {
-        const mediaPath = (item.path || '').replace('/srv/mergerfs/PROMETHEUS', '').replace('/Volumes/PROMETHEUS', '');
         const video = document.createElement('video');
-        video.src = '/media' + mediaPath;
+        video.poster = item.thumb_hq || item.thumb || '';
         video.controls = true;
-        video.style.cssText = 'position:relative;z-index:1;max-width:95vw;max-height:calc(100vh - 140px)';
-        video.oncanplay = () => { loading.remove(); bgWrap.remove(); };
+        video.setAttribute('playsinline', '');
+        video.preload = 'auto';
+        video.style.cssText = 'position:relative;z-index:1;max-width:100vw;max-height:100vh';
+        // Show poster immediately — hide loading/blur once poster dimensions known
+        video.onloadedmetadata = () => { loading.remove(); bgWrap.remove(); };
+        video.onerror = () => { loading.textContent = 'Failed to load video'; };
         lbMediaWrap.appendChild(video);
+        // Set src after appending so poster shows first
+        video.src = '/media' + encodeURI(item.path || '');
     } else {
         const img = document.createElement('img');
         img.style.cssText = 'position:relative;z-index:1';
-        img.onload = () => loading.remove();
+        img.onload = () => { loading.remove(); bgWrap.style.display = 'none'; };
         img.onerror = () => { loading.textContent = 'Failed to load'; };
-        img.addEventListener('click', () => { lbZoomed = !lbZoomed; img.classList.toggle('lb-zoomed', lbZoomed); });
         img.src = item.thumb_hq || item.thumb || '';
         lbMediaWrap.appendChild(img);
+    }
+
+    // Show people in this photo
+    const lbPeople = document.getElementById('lb-people');
+    lbPeople.innerHTML = '';
+    const thumbUrl = item.thumb || '';
+    const photoHash = thumbUrl.split('/').pop().replace('.jpg', '');
+    if (photoHash) {
+        const savedIdx = idx;
+        fetch('/api/photos/people/in-photo?hash=' + encodeURIComponent(photoHash))
+            .then(r => r.ok ? r.json() : [])
+            .then(people => {
+                if (lbIndex !== savedIdx) return;
+                lbPeople.innerHTML = '';
+                people.forEach(p => {
+                    const el = document.createElement('div');
+                    el.className = 'lb-person';
+                    const av = document.createElement('img');
+                    av.className = 'lb-person-avatar';
+                    av.src = '/api/photos/people/' + p.cluster_id + '/avatar?v=11';
+                    av.onerror = function() { this.src = '/static/thumbs/' + p.sample_face + '.jpg'; };
+                    const nm = document.createElement('span');
+                    nm.className = 'lb-person-name';
+                    nm.textContent = p.name;
+                    el.appendChild(av);
+                    el.appendChild(nm);
+                    el.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        closeLightbox();
+                        document.getElementById('people-panel').classList.add('active');
+                        openPersonDetail({ id: p.cluster_id, name: p.name, photo_count: 0, sample_face: p.sample_face });
+                    });
+                    lbPeople.appendChild(el);
+                });
+            })
+            .catch(() => {});
     }
 }
 
 document.getElementById('lb-close').addEventListener('click', closeLightbox);
-document.getElementById('lb-prev').addEventListener('click', () => { if (lbIndex > 0) showLbItem(lbIndex - 1); });
-document.getElementById('lb-next').addEventListener('click', () => { if (lbIndex < allItems.length - 1) showLbItem(lbIndex + 1); });
+lightbox.addEventListener('mousemove', _lbShowUi);
+lightbox.addEventListener('click', (e) => {
+    if (e.target.closest('.lb-btn, .lb-nav, #lb-people, video')) return;
+    if (e.target.closest('#lb-media-wrap')) {
+        // Toggle UI on tap/click the photo
+        if (lightbox.classList.contains('lb-ui-visible')) {
+            lightbox.classList.remove('lb-ui-visible');
+            clearTimeout(_lbUiTimer);
+        } else {
+            _lbShowUi();
+        }
+        return;
+    }
+});
+document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex > 0) showLbItem(lbIndex - 1); });
+document.getElementById('lb-next').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex < _getLbItems().length - 1) showLbItem(lbIndex + 1); });
+document.getElementById('lb-rotate').addEventListener('click', async () => {
+    const items = _getLbItems();
+    if (lbIndex < 0 || lbIndex >= items.length) return;
+    const item = items[lbIndex];
+    const thumbUrl = item.thumb || '';
+    const hash = thumbUrl.split('/').pop().replace('.jpg', '');
+    if (!hash) return;
+    const btn = document.getElementById('lb-rotate');
+    btn.style.opacity = '0.4';
+    btn.style.pointerEvents = 'none';
+    try {
+        const res = await fetch('/api/photos/rotate', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ hash: hash })
+        });
+        if (res.ok) {
+            // Bust cache and reload the images
+            const bust = '?r=' + Date.now();
+            const mediaImg = lbMediaWrap.querySelector('img[style*="z-index"]');
+            if (mediaImg) mediaImg.src = (item.thumb_hq || item.thumb) + bust;
+            const bgImg = lbMediaWrap.querySelector('.lb-thumb-bg img');
+            if (bgImg) bgImg.src = item.thumb + bust;
+            // Also update the grid thumbnail
+            const gridImg = document.querySelector('[data-hash="' + hash + '"] img');
+            if (gridImg) gridImg.src = item.thumb + bust;
+            // Evict from service worker cache
+            if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+                caches.open('prometheon-thumbs-v7').then(c => {
+                    c.delete(new Request(item.thumb));
+                    if (item.thumb_hq) c.delete(new Request(item.thumb_hq));
+                });
+            }
+        }
+    } catch (e) { console.error('Rotate failed:', e); }
+    btn.style.opacity = '';
+    btn.style.pointerEvents = '';
+});
 document.getElementById('lb-download').addEventListener('click', () => {
-    if (lbIndex < 0 || lbIndex >= allItems.length) return;
-    const item = allItems[lbIndex];
+    const items = _getLbItems();
+    if (lbIndex < 0 || lbIndex >= items.length) return;
+    const item = items[lbIndex];
     if (!item.path) return;
     downloadSinglePhoto(item.path);
 });
@@ -1310,11 +1772,11 @@ document.addEventListener('keydown', (e) => {
     if (!lightbox.classList.contains('active')) return;
     if (e.key === 'Escape') { closeLightbox(); return; }
     if (e.key === 'ArrowLeft' && lbIndex > 0) showLbItem(lbIndex - 1);
-    if (e.key === 'ArrowRight' && lbIndex < allItems.length - 1) showLbItem(lbIndex + 1);
+    if (e.key === 'ArrowRight' && lbIndex < _getLbItems().length - 1) showLbItem(lbIndex + 1);
 });
 
-let _lbTouchX = 0;
-lightbox.addEventListener('touchstart', (e) => { _lbTouchX = e.touches[0].clientX; }, { passive: true });
+let _lbTouchX = 0, _lbTouchY = 0;
+lightbox.addEventListener('touchstart', (e) => { _lbTouchX = e.touches[0].clientX; _lbTouchY = e.touches[0].clientY; }, { passive: true });
 lightbox.addEventListener('touchend', (e) => {
     const dx = e.changedTouches[0].clientX - _lbTouchX;
     if (Math.abs(dx) > 50) {
@@ -1355,19 +1817,100 @@ document.getElementById('delete-confirm').addEventListener('click', async () => 
     } catch (e) { console.error('Delete error', e); }
 });
 
-// ─── Search ───
+// ─── Search (people-aware) ───
 const searchInput = document.getElementById('search-input');
 const searchResultsEl = document.getElementById('search-results');
+const suggestionsEl = document.getElementById('search-suggestions');
 let isSearchMode = false, _searchTimer = null, _searchAllItems = null;
+let _peopleNames = [], _suggestActive = -1;
+
+// Pre-fetch named people for autocomplete
+fetch('/api/photos/people/names').then(r => r.ok ? r.json() : []).then(d => { _peopleNames = d || []; }).catch(() => {});
+
+function _getLastToken(val) {
+    const parts = val.split(/ and /i);
+    return (parts[parts.length - 1] || '').trim().toLowerCase();
+}
+
+function _replaceLastToken(val, replacement) {
+    const parts = val.split(/ and /i);
+    parts[parts.length - 1] = replacement;
+    return parts.join(' and ');
+}
+
+function showSuggestions() {
+    const val = searchInput.value;
+    const token = _getLastToken(val);
+    if (!token || !_peopleNames.length) { hideSuggestions(); return; }
+    const matches = _peopleNames.filter(p => p.name.toLowerCase().startsWith(token));
+    if (!matches.length) { hideSuggestions(); return; }
+    _suggestActive = -1;
+    suggestionsEl.innerHTML = '';
+    matches.slice(0, 6).forEach((p, i) => {
+        const row = document.createElement('div');
+        row.className = 'suggestion-row';
+        row.dataset.idx = i;
+        row.innerHTML = '<img class="suggestion-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=11" onerror="this.style.opacity=0.15" loading="lazy">'
+            + '<span class="suggestion-name">' + p.name + '</span>'
+            + '<span class="suggestion-count">' + p.photo_count + '</span>';
+        row.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            pickSuggestion(p.name);
+        });
+        suggestionsEl.appendChild(row);
+    });
+    suggestionsEl.classList.remove('hidden');
+}
+
+function hideSuggestions() {
+    suggestionsEl.classList.add('hidden');
+    suggestionsEl.innerHTML = '';
+    _suggestActive = -1;
+}
+
+function pickSuggestion(name) {
+    searchInput.value = _replaceLastToken(searchInput.value, name);
+    hideSuggestions();
+    searchInput.focus();
+    clearTimeout(_searchTimer);
+    const q = searchInput.value.trim();
+    if (q) doSearch(q);
+}
 
 searchInput.addEventListener('input', () => {
     clearTimeout(_searchTimer);
+    showSuggestions();
     const q = searchInput.value.trim();
-    if (!q) { if (isSearchMode) exitSearch(); return; }
+    if (!q) { if (isSearchMode) exitSearch(); hideSuggestions(); return; }
     _searchTimer = setTimeout(() => doSearch(q), 450);
 });
 
+searchInput.addEventListener('focus', () => { showSuggestions(); });
+searchInput.addEventListener('blur', () => { setTimeout(hideSuggestions, 150); });
+
+searchInput.addEventListener('keydown', (e) => {
+    if (suggestionsEl.classList.contains('hidden')) return;
+    const rows = suggestionsEl.querySelectorAll('.suggestion-row');
+    if (!rows.length) return;
+    if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        _suggestActive = Math.min(_suggestActive + 1, rows.length - 1);
+        rows.forEach((r, i) => r.classList.toggle('active', i === _suggestActive));
+    } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        _suggestActive = Math.max(_suggestActive - 1, 0);
+        rows.forEach((r, i) => r.classList.toggle('active', i === _suggestActive));
+    } else if (e.key === 'Enter' && _suggestActive >= 0) {
+        e.preventDefault();
+        const nameEl = rows[_suggestActive].querySelector('.suggestion-name');
+        if (nameEl) pickSuggestion(nameEl.textContent);
+    } else if (e.key === 'Escape') {
+        hideSuggestions();
+    }
+});
+
 async function doSearch(q) {
+    hideSuggestions();
     if (!isSearchMode) { _searchAllItems = allItems.slice(); }
     isSearchMode = true;
     gallery.classList.add('hidden');
@@ -1383,14 +1926,38 @@ async function doSearch(q) {
             return;
         }
         const items = data.results || [];
+        const people = data.people || [];
+        const sort = data.sort || 'relevance';
         searchResultsEl.innerHTML = '';
+
+        // People chips
+        if (people.length) {
+            const chipBar = document.createElement('div');
+            chipBar.className = 'people-chips';
+            people.forEach(p => {
+                const chip = document.createElement('div');
+                chip.className = 'person-chip';
+                chip.innerHTML = '<img class="chip-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=11" onerror="this.style.opacity=0.15">'
+                    + '<span class="chip-name">' + p.name + '</span>'
+                    + '<span class="chip-count">' + p.photo_count + '</span>';
+                chip.addEventListener('click', () => {
+                    openPersonDetail({ id: p.cluster_id, name: p.name, photo_count: p.photo_count, sample_face: p.sample_face });
+                });
+                chipBar.appendChild(chip);
+            });
+            searchResultsEl.appendChild(chipBar);
+        }
+
         if (!items.length) {
-            searchResultsEl.innerHTML = '<div class="text-term-gray text-[12px] px-2 py-10 text-center">No results for &ldquo;' + q + '&rdquo;</div>';
+            const msg = people.length
+                ? '<div class="text-term-gray text-[12px] px-2 py-6 text-center">No photos found matching this combination</div>'
+                : '<div class="text-term-gray text-[12px] px-2 py-10 text-center">No results for &ldquo;' + q + '&rdquo;</div>';
+            searchResultsEl.insertAdjacentHTML('beforeend', msg);
             return;
         }
         const meta = document.createElement('div');
         meta.className = 'text-term-gray text-[11px] px-2 py-3 tracking-widest';
-        meta.textContent = items.length + ' results';
+        meta.textContent = items.length + ' results \u00b7 by ' + sort;
         searchResultsEl.appendChild(meta);
         const grid = document.createElement('div');
         grid.className = 'grid zoom-5 gap-[2px]';
@@ -1402,7 +1969,7 @@ async function doSearch(q) {
             container.className = 'thumb-container skeleton';
             container.dataset.idx = i;
             if (item.type === 'video') {
-                const badge = document.createElement('div'); badge.className = 'video-badge'; badge.textContent = 'VIDEO';
+                const badge = document.createElement('div'); badge.className = 'video-badge';
                 container.appendChild(badge);
             }
             const img = new Image(); img.src = item.thumb || ''; img.alt = '';
@@ -1421,6 +1988,7 @@ function exitSearch() {
     isSearchMode = false;
     searchResultsEl.classList.add('hidden');
     searchResultsEl.innerHTML = '';
+    hideSuggestions();
     if (_searchAllItems) { allItems = _searchAllItems; _searchAllItems = null; }
     if (currentView === 'grid') gallery.classList.remove('hidden');
     else overview.classList.remove('hidden');
@@ -1698,60 +2266,617 @@ async function openPeoplePanel() {
         const data = await resp.json();
         const clusters = (data.clusters || []).sort((a, b) => b.photo_count - a.photo_count);
         content.innerHTML = '';
-        if (!clusters.length) {
+        if (!clusters.length && !(data.screenshot_count > 0)) {
             content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center px-6">No people yet.<br><br>Tap <strong class="text-accent">Select</strong> in the gallery, pick 10–20 photos of someone, then tap <strong class="text-accent">Name Person</strong>.</div>';
             return;
         }
-        document.getElementById('people-subtitle').textContent = clusters.length + ' people';
-        const grid = document.createElement('div');
-        grid.className = 'person-grid';
-        for (const c of clusters) {
+        const named = clusters.filter(c => c.name);
+        const unnamed = clusters.filter(c => !c.name);
+        document.getElementById('people-subtitle').textContent = named.length + ' people' + (unnamed.length ? ' · ' + unnamed.length + ' new' : '');
+
+        // Review button — inject into the people panel header bar
+        let existingReviewBtn = document.getElementById('header-review-btn');
+        if (existingReviewBtn) existingReviewBtn.remove();
+        const reviewBtn = document.createElement('button');
+        reviewBtn.id = 'header-review-btn';
+        reviewBtn.className = 'ps-btn ps-btn-move';
+        reviewBtn.style.cssText = 'margin-left:auto;';
+        reviewBtn.textContent = 'Review Faces';
+        reviewBtn.addEventListener('click', startFaceReview);
+        document.getElementById('people-header-right').appendChild(reviewBtn);
+
+        function makeCard(c) {
             const card = document.createElement('div');
             card.className = 'person-card';
-            const sf = c.sample_face;
-            card.innerHTML = (sf
-                ? '<img class="person-avatar" src="/static/thumbs/' + sf + '.jpg" loading="lazy" onerror="this.style.opacity=0.15">'
-                : '<div class="person-avatar" style="display:flex;align-items:center;justify-content:center;background:#0c1220"><svg viewBox="0 0 24 24" fill="none" stroke="#2d3a4e" stroke-width="1.5" width="45%"><path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2"/><circle cx="12" cy="7" r="4"/></svg></div>')
+            card.innerHTML = '<img class="person-avatar" src="/api/photos/people/' + c.id + '/avatar?v=11" loading="lazy" onerror="if(this.dataset.fell){this.style.opacity=0.15}else{this.dataset.fell=1;this.src=\'/static/thumbs/' + (c.sample_face||'') + '.jpg\'}">'
                 + '<div class="person-name">' + (c.name || 'Unknown') + '</div>'
                 + '<div class="person-count">' + c.photo_count + ' photos</div>';
             card.addEventListener('click', () => openPersonDetail(c));
-            grid.appendChild(card);
+            return card;
         }
-        content.appendChild(grid);
+
+        // Named people grid (no extra label — header already says PEOPLE)
+        const namedGrid = document.createElement('div');
+        namedGrid.style.marginTop = '12px';
+        namedGrid.className = 'person-grid';
+        for (const c of named) namedGrid.appendChild(makeCard(c));
+        content.appendChild(namedGrid);
+
+        // New clusters row — collapsible dropdown
+        if (unnamed.length) {
+            const newHeader = document.createElement('div');
+            newHeader.style.cssText = 'padding:20px 16px 8px;display:flex;align-items:center;gap:8px;cursor:pointer;border-top:1px solid #0c1e30;margin-top:8px;user-select:none;';
+            const arrow = document.createElement('span');
+            arrow.textContent = '▶';
+            arrow.style.cssText = 'font-size:10px;color:#2d4a60;transition:transform 0.2s ease;display:inline-block;';
+            const label = document.createElement('span');
+            label.style.cssText = 'font-family:Rajdhani,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:#2d4a60;';
+            label.textContent = 'New Clusters (' + unnamed.length + ')';
+            newHeader.appendChild(arrow);
+            newHeader.appendChild(label);
+            content.appendChild(newHeader);
+            const unnamedGrid = document.createElement('div');
+            unnamedGrid.className = 'person-grid';
+            unnamedGrid.style.cssText = 'display:none;';
+            for (const c of unnamed) unnamedGrid.appendChild(makeCard(c));
+            content.appendChild(unnamedGrid);
+            newHeader.addEventListener('click', () => {
+                const open = unnamedGrid.style.display !== 'none';
+                unnamedGrid.style.display = open ? 'none' : '';
+                arrow.style.transform = open ? '' : 'rotate(90deg)';
+            });
+        }
+
+        // Screenshots & Docs row — collapsible
+        const ssCount = data.screenshot_count || 0;
+        if (ssCount > 0) {
+            const ssHeader = document.createElement('div');
+            ssHeader.style.cssText = 'padding:20px 16px 8px;display:flex;align-items:center;gap:8px;cursor:pointer;border-top:1px solid #0c1e30;margin-top:8px;user-select:none;';
+            const ssArrow = document.createElement('span');
+            ssArrow.textContent = '▶';
+            ssArrow.style.cssText = 'font-size:10px;color:#2d4a60;transition:transform 0.2s ease;display:inline-block;';
+            const ssLabel = document.createElement('span');
+            ssLabel.style.cssText = 'font-family:Rajdhani,sans-serif;font-size:11px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:#2d4a60;';
+            ssLabel.textContent = 'Filtered';
+            ssHeader.appendChild(ssArrow);
+            ssHeader.appendChild(ssLabel);
+            content.appendChild(ssHeader);
+            const ssGrid = document.createElement('div');
+            ssGrid.className = 'person-grid';
+            ssGrid.style.cssText = 'display:none;';
+            const ssCard = document.createElement('div');
+            ssCard.className = 'person-card';
+            ssCard.innerHTML = '<div class="person-avatar" style="display:flex;align-items:center;justify-content:center;background:#0c1220">'
+                + '<svg viewBox="0 0 24 24" fill="none" stroke="#2d4a60" stroke-width="1.5" width="45%"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>'
+                + '</div>'
+                + '<div class="person-name">Screenshots & Docs</div>'
+                + '<div class="person-count">' + ssCount + ' items</div>';
+            ssCard.addEventListener('click', () => openScreenshotsDetail(ssCount));
+            ssGrid.appendChild(ssCard);
+            content.appendChild(ssGrid);
+            ssHeader.addEventListener('click', () => {
+                const open = ssGrid.style.display !== 'none';
+                ssGrid.style.display = open ? 'none' : '';
+                ssArrow.style.transform = open ? '' : 'rotate(90deg)';
+            });
+        }
     } catch(e) {
         content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load.</div>';
     }
 }
 
+// ─── Screenshots & Docs detail view ───
+let _screenshotPhotos = [];
+
+async function openScreenshotsDetail(count) {
+    const content = document.getElementById('people-content');
+    document.getElementById('people-title').textContent = 'SCREENSHOTS & DOCS';
+    document.getElementById('people-subtitle').textContent = count + ' items';
+    const _rb = document.getElementById('header-review-btn'); if (_rb) _rb.remove();
+    content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Loading…</div>';
+    try {
+        const resp = await fetch('/api/photos/screenshots');
+        if (!resp.ok) throw new Error();
+        const photos = await resp.json();
+        _screenshotPhotos = photos;
+        content.innerHTML = '';
+
+        // Group by month (present → past)
+        const SS_MONTHS = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+        const ssGroups = new Map();
+        for (let i = 0; i < photos.length; i++) {
+            const item = photos[i];
+            const d = item.date ? new Date(item.date * 1000) : null;
+            const key = d ? (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0')) : '0000-00';
+            if (!ssGroups.has(key)) ssGroups.set(key, []);
+            ssGroups.get(key).push({ item });
+        }
+        const ssSortedKeys = [...ssGroups.keys()].sort((a, b) => b.localeCompare(a));
+        // Sort within each month by date descending and rebuild array in display order
+        const ssReordered = [];
+        for (const key of ssSortedKeys) {
+            const entries = ssGroups.get(key);
+            entries.sort((a, b) => (b.item.date || 0) - (a.item.date || 0));
+            for (const entry of entries) { entry.globalIdx = ssReordered.length; ssReordered.push(entry.item); }
+        }
+        _screenshotPhotos = ssReordered;
+
+        for (const key of ssSortedKeys) {
+            const entries = ssGroups.get(key);
+            const header = document.createElement('div');
+            header.style.cssText = 'padding:14px 4px 8px;display:flex;align-items:baseline;gap:8px;';
+            const parts = key.split('-');
+            const label = key === '0000-00' ? 'Unknown Date' : SS_MONTHS[parseInt(parts[1])] + ' ' + parts[0];
+            header.innerHTML = '<span class="text-[22px] font-bold tracking-[0.12em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' + label.toUpperCase() + '</span>'
+                + '<span class="text-term-dark text-[14px]">' + entries.length + '</span>';
+            content.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'grid zoom-5 gap-[1px]';
+            for (const { item, globalIdx } of entries) {
+                const cell = document.createElement('div');
+                cell.className = 'thumb-container';
+                const img = document.createElement('img');
+                img.src = item.thumb || '';
+                img.loading = 'lazy';
+                img.alt = '';
+                img.onload = function() { this.classList.add('thumb-loaded'); };
+                cell.appendChild(img);
+                if (item.type === 'video') {
+                    const badge = document.createElement('div');
+                    badge.className = 'video-badge';
+                    badge.textContent = 'VID';
+                    cell.appendChild(badge);
+                }
+                cell.addEventListener('click', () => openScreenshotLightbox(globalIdx));
+                grid.appendChild(cell);
+            }
+            content.appendChild(grid);
+        }
+        document.getElementById('people-subtitle').textContent = photos.length + ' items';
+    } catch(e) {
+        content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load screenshots.</div>';
+    }
+}
+
+function openScreenshotLightbox(idx) {
+    openLightbox(idx, _screenshotPhotos);
+}
+
+// ─── Face review (Google Photos style) ───
+let _reviewQueue = [];
+let _reviewIdx = 0;
+let _reviewTotal = 0;
+let _reviewAccepted = 0;
+let _reviewRejected = 0;
+let _reviewedHashes = new Set(); // tracks all reviewed photos this session
+
+async function startFaceReview() {
+    const content = document.getElementById('people-content');
+    document.getElementById('people-title').textContent = 'REVIEW';
+    document.getElementById('people-subtitle').textContent = 'loading…';
+    const _rb = document.getElementById('header-review-btn'); if (_rb) _rb.remove();
+    content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Loading suggestions…</div>';
+
+    try {
+        const skip = [..._reviewedHashes].join(',');
+        const resp = await fetch('/api/photos/face/review?batch=50&skip=' + encodeURIComponent(skip));
+        if (!resp.ok) throw new Error();
+        const data = await resp.json();
+        _reviewQueue = data.items;
+        _reviewTotal = data.remaining;
+        _reviewIdx = 0;
+        _reviewAccepted = 0;
+        _reviewRejected = 0;
+
+        if (!_reviewQueue.length) {
+            content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">No photos to review right now.</div>';
+            document.getElementById('people-subtitle').textContent = '';
+            return;
+        }
+        showReviewCard();
+    } catch(e) {
+        content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load review data.</div>';
+    }
+}
+
+function showReviewCard() {
+    if (_reviewIdx >= _reviewQueue.length) {
+        const content = document.getElementById('people-content');
+        content.innerHTML = '<div class="review-card">'
+            + '<div class="text-term-white text-sm font-medium">Batch complete</div>'
+            + '<div class="text-term-gray text-[11px]">' + _reviewAccepted + ' accepted, ' + _reviewRejected + ' rejected</div>'
+            + '<button class="review-btn review-btn-yes" id="review-more" style="max-width:320px">Review More</button>'
+            + '</div>';
+        document.getElementById('people-subtitle').textContent = _reviewTotal + ' remaining';
+        document.getElementById('review-more').addEventListener('click', startFaceReview);
+        return;
+    }
+
+    const item = _reviewQueue[_reviewIdx];
+    const content = document.getElementById('people-content');
+    const progress = ((_reviewIdx) / _reviewQueue.length) * 100;
+    document.getElementById('people-subtitle').textContent =
+        (_reviewIdx + 1) + ' / ' + _reviewQueue.length + '  •  ' + _reviewTotal + ' remaining';
+
+    content.innerHTML = '<div class="review-card">'
+        + '<div class="review-progress"><div class="review-progress-bar" style="width:' + progress + '%"></div></div>'
+        + '<img class="review-photo" src="' + (item.thumb || '') + '" onerror="this.style.opacity=0.15">'
+        + '<div class="review-suggestion">'
+        +   '<img class="review-avatar" src="/api/photos/people/' + (item.suggested_cluster || '') + '/avatar?v=11" onerror="this.style.opacity=0.15">'
+        +   '<div>'
+        +     '<div class="review-name">' + item.suggested_name + '?</div>'
+        +     '<div class="review-conf">' + item.confidence + '% confidence</div>'
+        +   '</div>'
+        + '</div>'
+        + '<div class="review-actions">'
+        +   '<button class="review-btn review-btn-no" id="review-no">No</button>'
+        +   '<button class="review-btn review-btn-skip" id="review-skip">Skip</button>'
+        +   '<button class="review-btn review-btn-yes" id="review-yes">Yes</button>'
+        + '</div>'
+        + '</div>';
+
+    document.getElementById('review-yes').addEventListener('click', () => { _reviewedHashes.add(item.photo_hash); submitReview(true); });
+    document.getElementById('review-no').addEventListener('click', () => { _reviewedHashes.add(item.photo_hash); submitReview(false); });
+    document.getElementById('review-skip').addEventListener('click', () => { _reviewedHashes.add(item.photo_hash); _reviewIdx++; showReviewCard(); });
+}
+
+async function submitReview(accept) {
+    const item = _reviewQueue[_reviewIdx];
+    try {
+        await fetch('/api/photos/face/review', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                photo_hash: item.photo_hash,
+                cluster_id: item.suggested_cid,
+                accept: accept,
+            })
+        });
+        if (accept) _reviewAccepted++; else _reviewRejected++;
+    } catch(e) {}
+    _reviewIdx++;
+    showReviewCard();
+}
+
+let _personSelectMode = false;
+let _pfpSelectMode = false;
+let _personSelectedHashes = new Set();
+let _currentPersonCluster = null;
+let _currentPersonPhotos = [];
+
+function _hashFromThumb(item) {
+    const url = item.thumb || '';
+    return url.split('/').pop().replace('.jpg', '');
+}
+
+function exitPersonSelectMode() {
+    _personSelectMode = false;
+    _pfpSelectMode = false;
+    _personSelectedHashes.clear();
+    document.getElementById('person-select-bar').classList.remove('active');
+    document.querySelectorAll('#people-content .thumb-container.selected').forEach(el => el.classList.remove('selected'));
+}
+
+function _showToast(msg) {
+    let t = document.getElementById('pfp-toast');
+    if (!t) {
+        t = document.createElement('div');
+        t.id = 'pfp-toast';
+        t.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#1a2a40;color:#c8daf0;padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;opacity:0;transition:opacity 0.3s;pointer-events:none;';
+        document.body.appendChild(t);
+    }
+    t.textContent = msg;
+    t.style.opacity = '1';
+    clearTimeout(t._timer);
+    t._timer = setTimeout(() => { t.style.opacity = '0'; }, 2500);
+}
+
+async function _setPfp(photoHash) {
+    if (!_currentPersonCluster) return;
+    const cid = _currentPersonCluster.id;
+    _showToast('Setting profile picture...');
+    try {
+        const resp = await fetch('/api/photos/people/' + cid + '/avatar?v=11', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ hash: photoHash })
+        });
+        if (!resp.ok) throw new Error();
+        _pfpSelectMode = false;
+        // Update any visible avatar images for this person
+        document.querySelectorAll('img[src*="/people/' + cid + '/avatar"]').forEach(img => {
+            img.src = '/api/photos/people/' + cid + '/avatar?v=11&t=' + Date.now();
+        });
+        _showToast('Profile picture updated!');
+    } catch (e) {
+        _showToast('Failed to set profile picture');
+    }
+}
+
+function _closePhotoMenu() {
+    const old = document.querySelector('.photo-ctx-menu');
+    const oldBd = document.querySelector('.photo-ctx-backdrop');
+    if (old) old.remove();
+    if (oldBd) oldBd.remove();
+}
+
+function _showPhotoMenu(e, hash, photoIdx, container) {
+    _closePhotoMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'photo-ctx-menu';
+
+    const actions = [
+        { icon: '◉', label: 'Set as PFP', fn: () => { _closePhotoMenu(); _setPfp(hash); } },
+        { icon: '☐', label: 'Select', fn: () => {
+            _closePhotoMenu();
+            _personSelectMode = true;
+            _personSelectedHashes.add(hash);
+            container.classList.add('selected');
+            document.getElementById('person-select-bar').classList.add('active');
+            updatePersonSelCount();
+        }},
+    ];
+
+    for (const a of actions) {
+        const btn = document.createElement('button');
+        btn.innerHTML = '<span class="ctx-icon">' + a.icon + '</span>' + a.label;
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); a.fn(); });
+        menu.appendChild(btn);
+    }
+
+    // Position near the click
+    const backdrop = document.createElement('div');
+    backdrop.className = 'photo-ctx-backdrop';
+    backdrop.addEventListener('click', _closePhotoMenu);
+    document.body.appendChild(backdrop);
+    document.body.appendChild(menu);
+
+    // Place menu — prefer below-right of click, but keep on screen
+    const mx = e.clientX, my = e.clientY;
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = mx + 4, top = my + 4;
+    if (left + mw > vw - 8) left = mx - mw - 4;
+    if (top + mh > vh - 8) top = my - mh - 4;
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = Math.max(8, top) + 'px';
+}
+
+function _showGridMenu(e, hash, photoIdx, container) {
+    _closePhotoMenu();
+
+    const menu = document.createElement('div');
+    menu.className = 'photo-ctx-menu';
+
+    const actions = [
+        { icon: '🗑', label: 'Trash', fn: async () => {
+            _closePhotoMenu();
+            try {
+                const r = await fetch('/api/photos/trash', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hash })
+                });
+                const res = await r.json();
+                if (res.success) {
+                    container.remove();
+                    _showToast('Moved to trash');
+                } else {
+                    _showToast(res.error || 'Failed to trash');
+                }
+            } catch { _showToast('Failed to trash'); }
+        }},
+        { icon: '☐', label: 'Select', fn: () => {
+            _closePhotoMenu();
+            selectMode = true;
+            document.body.classList.add('select-mode');
+            document.getElementById('select-bar').classList.add('active');
+            selectedHashes.add(hash);
+            container.classList.add('selected');
+            updateSelCount();
+            // Force-load all sections in background
+            const unloaded = [...gallery.querySelectorAll('section[data-month-key]')]
+                .filter(s => s.dataset.loaded !== 'done' && s.dataset.loaded !== 'loading');
+            Promise.all(unloaded.map(s => loadSection(s)));
+        }},
+    ];
+
+    for (const a of actions) {
+        const btn = document.createElement('button');
+        btn.innerHTML = '<span class="ctx-icon">' + a.icon + '</span>' + a.label;
+        btn.addEventListener('click', (ev) => { ev.stopPropagation(); a.fn(); });
+        menu.appendChild(btn);
+    }
+
+    const backdrop = document.createElement('div');
+    backdrop.className = 'photo-ctx-backdrop';
+    backdrop.addEventListener('click', _closePhotoMenu);
+    document.body.appendChild(backdrop);
+    document.body.appendChild(menu);
+
+    const mx = e.clientX, my = e.clientY;
+    const mw = menu.offsetWidth, mh = menu.offsetHeight;
+    const vw = window.innerWidth, vh = window.innerHeight;
+    let left = mx + 4, top = my + 4;
+    if (left + mw > vw - 8) left = mx - mw - 4;
+    if (top + mh > vh - 8) top = my - mh - 4;
+    menu.style.left = Math.max(8, left) + 'px';
+    menu.style.top = Math.max(8, top) + 'px';
+}
+
+function updatePersonSelCount() {
+    const n = _personSelectedHashes.size;
+    document.getElementById('ps-count').textContent = n + ' selected';
+    document.getElementById('ps-remove-btn').disabled = n === 0;
+    document.getElementById('ps-move-btn').disabled = n === 0;
+}
+
+document.getElementById('ps-cancel').addEventListener('click', exitPersonSelectMode);
+
+document.getElementById('ps-remove-btn').addEventListener('click', async () => {
+    if (!_personSelectedHashes.size || !_currentPersonCluster) return;
+    const n = _personSelectedHashes.size;
+    if (!confirm('Remove ' + n + ' photo' + (n > 1 ? 's' : '') + ' from ' + (_currentPersonCluster.name || 'this person') + '?')) return;
+    try {
+        const resp = await fetch('/api/photos/face/' + _currentPersonCluster.id + '/remove', {
+            method: 'POST', headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ hashes: [..._personSelectedHashes] })
+        });
+        if (!resp.ok) throw new Error();
+        const data = await resp.json();
+        exitPersonSelectMode();
+        _currentPersonCluster.photo_count -= data.removed;
+        openPersonDetail(_currentPersonCluster);
+    } catch(e) {
+        alert('Failed to remove photos.');
+    }
+});
+
+document.getElementById('ps-move-btn').addEventListener('click', async () => {
+    if (!_personSelectedHashes.size || !_currentPersonCluster) return;
+    try {
+        const resp = await fetch('/api/photos/faces');
+        if (!resp.ok) throw new Error();
+        const data = await resp.json();
+        const list = document.getElementById('move-to-list');
+        list.innerHTML = '';
+        document.getElementById('move-to-sub').textContent = _personSelectedHashes.size + ' photo' + (_personSelectedHashes.size > 1 ? 's' : '') + ' selected';
+        for (const c of data.clusters) {
+            if (c.id === _currentPersonCluster.id) continue;
+            const btn = document.createElement('button');
+            btn.className = 'move-to-item';
+            btn.textContent = (c.name || 'Unknown') + ' (' + c.photo_count + ')';
+            btn.addEventListener('click', async () => {
+                const hashes = [..._personSelectedHashes];
+                let moved = 0;
+                for (const h of hashes) {
+                    const r = await fetch('/api/photos/face/move', {
+                        method: 'POST', headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify({ hash: h, from_cluster: _currentPersonCluster.id, to_cluster: c.id })
+                    });
+                    if (r.ok) moved++;
+                }
+                document.getElementById('move-to-modal').classList.remove('active');
+                exitPersonSelectMode();
+                _currentPersonCluster.photo_count -= moved;
+                openPersonDetail(_currentPersonCluster);
+            });
+            list.appendChild(btn);
+        }
+        document.getElementById('move-to-modal').classList.add('active');
+    } catch(e) {
+        alert('Failed to load people list.');
+    }
+});
+
+document.getElementById('move-to-cancel').addEventListener('click', () => {
+    document.getElementById('move-to-modal').classList.remove('active');
+});
+
 async function openPersonDetail(cluster) {
+    _currentPersonCluster = cluster;
+    exitPersonSelectMode();
     const content = document.getElementById('people-content');
     document.getElementById('people-title').textContent = cluster.name || 'Unknown';
     document.getElementById('people-subtitle').textContent = cluster.photo_count + ' photos';
+    const _rb = document.getElementById('header-review-btn'); if (_rb) _rb.remove();
     content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Loading…</div>';
     try {
         const resp = await fetch('/api/photos/face/' + cluster.id);
         if (!resp.ok) throw new Error();
         const photos = await resp.json();
+        _currentPersonPhotos = photos;
         content.innerHTML = '';
-        const grid = document.createElement('div');
-        grid.className = 'grid zoom-5 gap-[2px] pt-2';
+
+        // Toolbar — only person-level actions
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'padding:8px 12px;display:flex;justify-content:flex-end;gap:8px;';
+        const nameBtn = document.createElement('button');
+        nameBtn.className = 'ps-btn ps-btn-move';
+        nameBtn.textContent = cluster.name ? 'Rename' : 'Name';
+        nameBtn.addEventListener('click', () => {
+            const name = prompt('Name this person:', cluster.name || '');
+            if (name === null || !name.trim()) return;
+            fetch('/api/photos/face/' + cluster.id + '/name', {
+                method: 'POST', headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ name: name.trim() })
+            }).then(r => { if (r.ok) { cluster.name = name.trim(); document.getElementById('people-title').textContent = name.trim(); } });
+        });
+        toolbar.appendChild(nameBtn);
+        content.appendChild(toolbar);
+
+        // Group photos by month (present → past)
+        const MONTH_NAMES = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+        const monthGroups = new Map();
         for (let i = 0; i < photos.length; i++) {
             const item = photos[i];
-            const container = document.createElement('div');
-            container.className = 'thumb-container skeleton';
-            if (item.type === 'video') {
-                const badge = document.createElement('div');
-                badge.className = 'video-badge'; badge.textContent = 'VIDEO';
-                container.appendChild(badge);
-            }
-            const img = new Image(); img.src = item.thumb || ''; img.alt = '';
-            img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
-            img.onerror = () => container.classList.remove('skeleton');
-            container.appendChild(img);
-            container.addEventListener('click', () => openLightbox(allItems.indexOf(item)));
-            grid.appendChild(container);
+            const d = item.date ? new Date(item.date * 1000) : null;
+            const key = d ? (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0')) : '0000-00';
+            if (!monthGroups.has(key)) monthGroups.set(key, []);
+            monthGroups.get(key).push({ item });
         }
-        content.appendChild(grid);
+        // Sort month keys newest first
+        const sortedKeys = [...monthGroups.keys()].sort((a, b) => b.localeCompare(a));
+        // Sort within each month by date descending and rebuild photos array in display order
+        const reordered = [];
+        for (const key of sortedKeys) {
+            const entries = monthGroups.get(key);
+            entries.sort((a, b) => (b.item.date || 0) - (a.item.date || 0));
+            for (const entry of entries) { entry.globalIdx = reordered.length; reordered.push(entry.item); }
+        }
+        _currentPersonPhotos = reordered;
+
+        for (const key of sortedKeys) {
+            const entries = monthGroups.get(key);
+            // Month header
+            const header = document.createElement('div');
+            header.className = 'month-header visible';
+            header.style.cssText = 'padding:14px 4px 8px;display:flex;align-items:baseline;gap:8px;';
+            const parts = key.split('-');
+            const label = key === '0000-00' ? 'Unknown Date' : MONTH_NAMES[parseInt(parts[1])] + ' ' + parts[0];
+            header.innerHTML = '<span class="text-[22px] font-bold tracking-[0.12em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' + label.toUpperCase() + '</span>'
+                + '<span class="text-term-dark text-[14px]">' + entries.length + '</span>';
+            content.appendChild(header);
+
+            const grid = document.createElement('div');
+            grid.className = 'grid zoom-5 gap-[2px]';
+            for (const { item, globalIdx } of entries) {
+                const h = _hashFromThumb(item);
+                const container = document.createElement('div');
+                container.className = 'thumb-container skeleton';
+                container.dataset.phash = h;
+                if (item.type === 'video') {
+                    const badge = document.createElement('div');
+                    badge.className = 'video-badge';
+                    container.appendChild(badge);
+                }
+                const img = new Image(); img.src = item.thumb || ''; img.alt = '';
+                img.onload = () => { container.classList.remove('skeleton'); img.classList.add('thumb-loaded'); };
+                img.onerror = () => container.classList.remove('skeleton');
+                container.appendChild(img);
+                const _photoIdx = globalIdx;
+                container.addEventListener('click', (e) => {
+                    if (_personSelectMode) {
+                        e.stopPropagation(); e.preventDefault();
+                        if (_personSelectedHashes.has(h)) {
+                            _personSelectedHashes.delete(h); container.classList.remove('selected');
+                        } else {
+                            _personSelectedHashes.add(h); container.classList.add('selected');
+                        }
+                        updatePersonSelCount();
+                    } else {
+                        openLightbox(_photoIdx, _currentPersonPhotos);
+                    }
+                });
+                container.addEventListener('contextmenu', (e) => {
+                    if (_personSelectMode) return;
+                    e.stopPropagation(); e.preventDefault();
+                    _showPhotoMenu(e, h, _photoIdx, container);
+                });
+                grid.appendChild(container);
+            }
+            content.appendChild(grid);
+        }
     } catch(e) {
         content.innerHTML = '<div class="text-term-gray text-[12px] py-10 text-center">Failed to load.</div>';
     }
@@ -1793,6 +2918,23 @@ async function downloadSinglePhoto(path) {
 // ─── Init ───
 buildGallery();
 document.getElementById('btn-grid').classList.add('active');
+
+// ─── Service Worker — register and trigger full thumbnail precache ───
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').then(reg => {
+        function triggerPrecache(sw) {
+            sw.postMessage({ type: 'PRECACHE_BUNDLE', expectedCount: photoData.total || 0 });
+        }
+        const sw = reg.active || reg.waiting || reg.installing;
+        if (reg.active) {
+            triggerPrecache(reg.active);
+        } else if (sw) {
+            sw.addEventListener('statechange', () => {
+                if (sw.state === 'activated') triggerPrecache(sw);
+            });
+        }
+    }).catch(() => {});
+}
 </script>
 
 </body>

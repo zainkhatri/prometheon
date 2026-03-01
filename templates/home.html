@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background:#04070d">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
@@ -40,15 +40,15 @@
             -webkit-text-size-adjust: 100%;
         }
 
-        @keyframes pageIn {
-            from { opacity: 0; transform: translateY(6px); }
-            to   { opacity: 1; transform: translateY(0); }
+        #pg-overlay {
+            position: fixed; inset: 0; background: #04070d;
+            z-index: 9999; pointer-events: none;
+            transition: opacity 0.15s ease;
         }
 
         #terminal {
             display: flex;
             flex-direction: column;
-            animation: pageIn 0.35s ease-out;
             min-height: 100vh;
             min-height: 100dvh;
         }
@@ -367,6 +367,7 @@
     </style>
 </head>
 <body>
+<div id="pg-overlay"></div>
 
 <div id="terminal">
     <div id="titlebar">
@@ -455,6 +456,38 @@
 </div>
 
 <script>
+// ─── Page transitions ───
+(function() {
+    const ov = document.getElementById('pg-overlay');
+    // Entrance: wait for fonts so ASCII art scales before reveal
+    document.fonts.ready.then(() => {
+        requestAnimationFrame(() => { ov.style.opacity = '0'; });
+    });
+    // Exit: fade overlay in, then navigate
+    document.addEventListener('click', function(e) {
+        const a = e.target.closest('a[href]');
+        if (!a || !a.href) return;
+        let url; try { url = new URL(a.href); } catch { return; }
+        if (url.origin !== location.origin) return;
+        if (a.target || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
+        e.preventDefault();
+        const dest = a.href;
+        ov.style.opacity = '1';
+        setTimeout(() => { location.href = dest; }, 160);
+    });
+    // Back button (bfcache)
+    window.addEventListener('pageshow', function(e) {
+        if (e.persisted) {
+            ov.style.transition = 'none';
+            ov.style.opacity = '1';
+            requestAnimationFrame(() => {
+                ov.style.transition = 'opacity 0.15s ease';
+                ov.style.opacity = '0';
+            });
+        }
+    });
+})();
+
 (function scaleBanner() {
     const wrap   = document.getElementById('banner-wrap');
     const banner = document.getElementById('banner');
@@ -552,6 +585,7 @@ async function loadPhotoCount() {
 
 loadVitals(); setInterval(loadVitals, 5000);
 loadPhotoCount();
+
 
 async function prefetchPhotoThumbs() {
     try {

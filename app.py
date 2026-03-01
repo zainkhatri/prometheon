@@ -442,6 +442,27 @@ def trash_restore():
     return jsonify(result)
 
 
+@app.route("/api/photos/trash", methods=["POST"])
+@require_auth
+def trash_photo():
+    """Trash a single photo by its hash (thumbnail filename without .jpg)."""
+    data = request.json or {}
+    h = data.get("hash", "")
+    if not h:
+        return jsonify({"error": "No hash provided"}), 400
+    name = h + ".jpg" if not h.endswith(".jpg") else h
+    orig_path = _hash_to_path.get(name)
+    if not orig_path:
+        return jsonify({"error": "Photo not found"}), 404
+    result = trash_file(orig_path)
+    if result.get("success"):
+        # Invalidate caches so the photo disappears
+        _photo_cache["data"] = None
+        _month_cache["data"] = None
+        _month_json_cache["data"] = None
+    return jsonify(result)
+
+
 # ─── Photo Gallery ───
 
 PHOTO_INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "photo_index.json")
@@ -492,6 +513,23 @@ def load_month_index():
     _month_cache["mtime"] = mtime
     _month_json_cache["data"] = None  # invalidate serialized cache
     return by_month
+
+
+def _get_hidden_hashes():
+    """Return set of photo hashes belonging to hidden face clusters."""
+    clusters = _ai.get("face_clusters")
+    if not clusters:
+        return set()
+    hidden = set()
+    for c in clusters.values():
+        if c.get("hidden"):
+            hidden.update(c.get("photo_hashes", []))
+    return hidden
+
+
+def _get_screenshot_hashes():
+    """Return set of photo hashes classified as screenshots/documents."""
+    return _ai.get("screenshot_hashes") or set()
 
 
 @app.route("/api/photos/thumb-bundle")
@@ -555,7 +593,11 @@ def warm_month(month_key):
 @app.route("/photos")
 @require_auth
 def photos_page():
-    items = sorted(load_photo_index(), key=lambda x: x.get('date', 0), reverse=True)
+    hidden = _get_hidden_hashes()
+    screenshots = _get_screenshot_hashes()
+    exclude = hidden | screenshots
+    all_items = sorted(load_photo_index(), key=lambda x: x.get('date', 0), reverse=True)
+    items = [i for i in all_items if not (exclude and i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") in exclude)]
     groups = OrderedDict()
     for item in items:
         try:
@@ -574,7 +616,10 @@ def photos_page():
     # Inline the first 3 months of items so they render without an API call
     by_month = load_month_index()
     group_keys = list(groups.keys())
-    inline_items = {key: by_month.get(key, []) for key in group_keys[:3]}
+    if exclude:
+        inline_items = {key: [i for i in by_month.get(key, []) if i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") not in exclude] for key in group_keys[:3]}
+    else:
+        inline_items = {key: by_month.get(key, []) for key in group_keys[:3]}
     photo_data_json = json.dumps({
         "groups": list(groups.values()),
         "total": len(items),
@@ -594,7 +639,11 @@ def photos_page():
 def api_photos_month(month_key):
     """Return all items for a specific month."""
     by_month = load_month_index()
-    return jsonify(by_month.get(month_key, []))
+    items = by_month.get(month_key, [])
+    exclude = _get_hidden_hashes() | _get_screenshot_hashes()
+    if exclude:
+        items = [i for i in items if i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") not in exclude]
+    return jsonify(items)
 
 
 @app.route("/api/photos/all-months")
@@ -613,13 +662,17 @@ def api_photos_all_months():
     except OSError:
         return jsonify({})
 
-    if _month_json_cache["data"] is not None and _month_json_cache["mtime"] == mtime:
+    exclude = _get_hidden_hashes() | _get_screenshot_hashes()
+    if _month_json_cache["data"] is not None and _month_json_cache["mtime"] == mtime and not exclude:
         raw = _month_json_cache["data"]
     else:
         by_month = load_month_index()
+        if exclude:
+            by_month = {k: [i for i in v if i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") not in exclude] for k, v in by_month.items()}
         raw = json.dumps(by_month).encode("utf-8")
-        _month_json_cache["data"] = raw
-        _month_json_cache["mtime"] = mtime
+        if not exclude:
+            _month_json_cache["data"] = raw
+            _month_json_cache["mtime"] = mtime
 
     if "gzip" in request.headers.get("Accept-Encoding", ""):
         compressed = _gzip.compress(raw, compresslevel=4)
@@ -830,6 +883,7 @@ def resolve_media_path(filepath):
 @app.route("/media/<path:filepath>")
 @require_auth
 def serve_media(filepath):
+    import mimetypes
     filepath = "/" + filepath
     # Try alias first to avoid slow stat() on non-existent mount paths
     alt = resolve_media_path(filepath)
@@ -841,6 +895,15 @@ def serve_media(filepath):
     allowed = ["/srv/mergerfs/PROMETHEUS/PHOTOS/", "/Volumes/PROMETHEUS/PHOTOS/"]
     if not any(abs_path.startswith(prefix) for prefix in allowed):
         abort(403)
+    # X-Accel-Redirect: let nginx serve file directly (zero-copy sendfile)
+    # Falls back to Flask send_file when not behind nginx
+    if os.environ.get("NGINX_ACCEL"):
+        mime = mimetypes.guess_type(abs_path)[0] or "application/octet-stream"
+        resp = make_response("")
+        resp.headers["X-Accel-Redirect"] = "/internal-media" + abs_path
+        resp.headers["Content-Type"] = mime
+        resp.headers["Cache-Control"] = f"public, max-age={MEDIA_CACHE_MAX_AGE}"
+        return resp
     return send_file(filepath, conditional=True, max_age=MEDIA_CACHE_MAX_AGE)
 
 
@@ -1110,6 +1173,51 @@ def upload_photo():
 
 # ─── Photo Delete (trash) ───
 
+@app.route("/api/photos/rotate", methods=["POST"])
+@require_auth
+def rotate_photo():
+    """Rotate photo thumbnails. Supports single or batch rotation.
+
+    Body: {"hash": "abc", "direction": "cw"} — single photo
+      or: {"hashes": ["abc","def"], "direction": "ccw"} — batch
+    direction: "cw" (default, 90° clockwise) or "ccw" (90° counter-clockwise)
+    """
+    from PIL import Image
+    data = request.json
+    direction = data.get("direction", "cw")
+    angle = -90 if direction == "cw" else 90
+
+    hashes = data.get("hashes", [])
+    if not hashes:
+        h = data.get("hash", "")
+        if h:
+            hashes = [h]
+    if not hashes:
+        return jsonify({"error": "No hash provided"}), 400
+
+    results = {"rotated": 0, "errors": []}
+    for photo_hash in hashes:
+        ok = False
+        for tdir in [_THUMB_DIR, _THUMB_HQ_DIR]:
+            tp = os.path.join(tdir, photo_hash + ".jpg")
+            if os.path.exists(tp):
+                try:
+                    img = Image.open(tp)
+                    img = img.rotate(angle, expand=True)
+                    img.save(tp, "JPEG", quality=85, optimize=True)
+                    ok = True
+                except Exception as e:
+                    results["errors"].append(f"{photo_hash}: {e}")
+        if ok:
+            results["rotated"] += 1
+            name = photo_hash + ".jpg"
+            with _thumb_cache_lock:
+                _thumb_cache.pop((_THUMB_DIR, name), None)
+                _thumb_cache.pop((_THUMB_HQ_DIR, name), None)
+
+    return jsonify({"success": True, **results})
+
+
 @app.route("/api/photos/delete", methods=["POST"])
 @require_auth
 def delete_photo():
@@ -1295,6 +1403,8 @@ _ai = {
     "model": None, "tokenizer": None, "ready": False,
     "face_clusters": None, "face_index": None,
     "face_embs": None, "face_centroids": None, "emb_to_cluster": None,
+    "screenshot_hashes": None,
+    "name_to_cluster": {},
 }
 
 
@@ -1320,6 +1430,15 @@ def _load_ai_index():
         with open(fc_path) as f:
             _ai["face_clusters"] = json.load(f)
         print(f"[ai] Loaded {len(_ai['face_clusters'])} face clusters.")
+        # Clear avatar cache — cluster IDs may have shifted; will regenerate on demand
+        avatar_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "face_avatars")
+        if os.path.isdir(avatar_dir):
+            for fn in os.listdir(avatar_dir):
+                if fn.endswith(".jpg"):
+                    try:
+                        os.unlink(os.path.join(avatar_dir, fn))
+                    except OSError:
+                        pass
 
     fi_path = os.path.join(_AI_DIR, "face_index.json")
     if os.path.exists(fi_path):
@@ -1352,6 +1471,55 @@ def _load_ai_index():
                 emb_to_cluster[emb_idx] = cids[int(np.argmin(dists))]
             _ai["emb_to_cluster"] = emb_to_cluster
         print(f"[ai] Face embeddings loaded, centroids for {len(centroids)} clusters.")
+
+    # Load screenshot/document hashes
+    ss_path = os.path.join(_AI_DIR, "screenshot_hashes.json")
+    if os.path.exists(ss_path):
+        with open(ss_path) as f:
+            _ai["screenshot_hashes"] = set(json.load(f))
+        print(f"[ai] Loaded {len(_ai['screenshot_hashes'])} screenshot hashes.")
+
+    _rebuild_name_map()
+
+
+def _rebuild_name_map():
+    """Build lowercase name → cluster_id lookup from face_clusters."""
+    clusters = _ai.get("face_clusters") or {}
+    mapping = {}
+    for cid, c in clusters.items():
+        name = (c.get("name") or "").strip()
+        if name and not c.get("hidden"):
+            mapping[name.lower()] = cid
+    _ai["name_to_cluster"] = mapping
+
+
+def _parse_people_query(q):
+    """Split query on ' and ', match parts against known names.
+
+    Returns (matched_people, semantic_text) where matched_people is a list of
+    (name, cluster_id) tuples and semantic_text is the remaining non-name text
+    (or empty string if everything matched).
+    """
+    name_map = _ai.get("name_to_cluster") or {}
+    parts = [p.strip() for p in q.lower().split(" and ") if p.strip()]
+    matched = []
+    unmatched = []
+    for part in parts:
+        if part in name_map:
+            matched.append((part, name_map[part]))
+        else:
+            unmatched.append(part)
+    semantic = " and ".join(unmatched)
+    return matched, semantic
+
+
+def _get_person_hashes(cluster_id):
+    """Return set of photo_hashes minus excluded_hashes for a cluster."""
+    clusters = _ai.get("face_clusters") or {}
+    c = clusters.get(cluster_id, {})
+    hashes = set(c.get("photo_hashes", []))
+    excluded = set(c.get("excluded_hashes", []))
+    return hashes - excluded
 
 
 def _load_clip_model():
@@ -1392,6 +1560,44 @@ AESTHETIC_QUERIES = [
     "vibrant outdoor scenery",
     "cinematic landscape photo",
 ]
+
+PORTRAIT_QUERIES = [
+    "a clear well-lit portrait photo of a person smiling",
+    "a close-up selfie of a happy person looking at the camera",
+    "a nice headshot photo with good lighting",
+    "a person posing for the camera with a clear face",
+]
+
+_portrait_emb = None
+_portrait_emb_lock = threading.Lock()
+
+
+def _get_portrait_embedding():
+    """Compute (once) a CLIP embedding representing 'good portrait photo'."""
+    global _portrait_emb
+    if _portrait_emb is not None:
+        return _portrait_emb
+    if not _ai["ready"]:
+        return None
+    import torch, numpy as np
+    with _portrait_emb_lock:
+        if _portrait_emb is not None:
+            return _portrait_emb
+        try:
+            tokenizer = _ai["tokenizer"]
+            model     = _ai["model"]
+            texts = tokenizer(PORTRAIT_QUERIES)
+            with torch.no_grad():
+                embs = model.encode_text(texts)
+                embs = embs / embs.norm(dim=-1, keepdim=True)
+                avg  = embs.mean(dim=0)
+                avg  = (avg / avg.norm()).cpu().numpy()
+            _portrait_emb = avg
+            print("[ai] Portrait embedding computed.")
+        except Exception as e:
+            print(f"[ai] Could not compute portrait embedding: {e}")
+    return _portrait_emb
+
 
 def _get_aesthetic_embedding():
     """Compute (once) a CLIP embedding representing 'aesthetic scenic photo'."""
@@ -1483,7 +1689,7 @@ if _should_run_background():
 @app.route("/api/photos/search")
 @require_auth
 def api_search_photos():
-    """Semantic photo search powered by CLIP embeddings."""
+    """People-aware semantic photo search powered by CLIP + face clusters."""
     import numpy as np
 
     q = request.args.get("q", "").strip()
@@ -1492,25 +1698,21 @@ def api_search_photos():
     if not q:
         return jsonify({"results": [], "query": ""})
 
-    if _ai["clip_emb"] is None:
-        return jsonify({"error": "AI index not built. SSH into the NAS and run: python ai_indexer.py"}), 404
+    matched_people, semantic_text = _parse_people_query(q)
 
-    if not _ai["ready"]:
-        return jsonify({"error": "AI search is loading, try again in a moment..."}), 503
+    # Build people info for response
+    clusters = _ai.get("face_clusters") or {}
+    people_info = []
+    for name, cid in matched_people:
+        c = clusters.get(cid, {})
+        people_info.append({
+            "name": c.get("name", name),
+            "cluster_id": cid,
+            "photo_count": c.get("photo_count", 0),
+            "sample_face": c.get("sample_face", ""),
+        })
 
-    import torch
-    model = _ai["model"]
-    tokenizer = _ai["tokenizer"]
-
-    text = tokenizer([q])
-    with torch.no_grad():
-        tf = model.encode_text(text)
-        tf = (tf / tf.norm(dim=-1, keepdim=True)).squeeze().cpu().numpy()
-
-    scores = _ai["clip_emb"] @ tf
-    top_idx = np.argsort(scores)[::-1][:limit]
-
-    # Map hashes back to photo items
+    # Build hash→item lookup
     items = load_photo_index()
     hash_to_item = {}
     for item in items:
@@ -1519,6 +1721,74 @@ def api_search_photos():
             h = url.rsplit("/", 1)[-1].replace(".jpg", "")
             hash_to_item[h] = item
 
+    # Case 1: People only (no semantic text)
+    if matched_people and not semantic_text:
+        # Intersect photo sets from all matched people
+        person_sets = [_get_person_hashes(cid) for _, cid in matched_people]
+        combined = person_sets[0]
+        for s in person_sets[1:]:
+            combined = combined & s
+
+        results = []
+        for h in combined:
+            item = hash_to_item.get(h)
+            if item:
+                results.append(item)
+        results.sort(key=lambda x: -x.get("date", 0))
+        results = results[:limit]
+
+        return jsonify({
+            "results": results, "query": q,
+            "people": people_info, "sort": "date",
+        })
+
+    # Case 2: People + semantic text (CLIP-score only that person's photos)
+    # Case 3: Pure semantic (no people matched)
+    if _ai["clip_emb"] is None:
+        return jsonify({"error": "AI index not built. SSH into the NAS and run: python ai_indexer.py"}), 404
+    if not _ai["ready"]:
+        return jsonify({"error": "AI search is loading, try again in a moment..."}), 503
+
+    import torch
+    model = _ai["model"]
+    tokenizer = _ai["tokenizer"]
+
+    clip_query = semantic_text if semantic_text else q
+    text = tokenizer([clip_query])
+    with torch.no_grad():
+        tf = model.encode_text(text)
+        tf = (tf / tf.norm(dim=-1, keepdim=True)).squeeze().cpu().numpy()
+
+    scores = _ai["clip_emb"] @ tf
+
+    if matched_people:
+        # Intersect person sets, then rank by CLIP score within that subset
+        person_sets = [_get_person_hashes(cid) for _, cid in matched_people]
+        allowed = person_sets[0]
+        for s in person_sets[1:]:
+            allowed = allowed & s
+
+        scored = []
+        for i, h in enumerate(_ai["clip_hashes"]):
+            if h in allowed:
+                scored.append((i, float(scores[i])))
+        scored.sort(key=lambda x: -x[1])
+        scored = scored[:limit]
+
+        results = []
+        for idx, score in scored:
+            h = _ai["clip_hashes"][idx]
+            item = hash_to_item.get(h)
+            if item and score > 0.15:
+                results.append({**item, "score": round(score, 3)})
+
+        return jsonify({
+            "results": results, "query": q,
+            "people": people_info, "sort": "relevance",
+        })
+
+    # Pure semantic search (no people)
+    top_idx = np.argsort(scores)[::-1][:limit]
     results = []
     for idx in top_idx:
         h = _ai["clip_hashes"][idx]
@@ -1527,7 +1797,10 @@ def api_search_photos():
         if item and score > 0.18:
             results.append({**item, "score": round(score, 3)})
 
-    return jsonify({"results": results, "query": q})
+    return jsonify({
+        "results": results, "query": q,
+        "people": [], "sort": "relevance",
+    })
 
 
 @app.route("/api/photos/search/status")
@@ -1543,6 +1816,25 @@ def api_search_status():
         "count": count,
         "faces": faces,
     })
+
+
+@app.route("/api/photos/people/names")
+@require_auth
+def api_people_names():
+    """Return named, non-hidden people for search autocomplete."""
+    clusters = _ai.get("face_clusters") or {}
+    result = []
+    for cid, c in clusters.items():
+        name = (c.get("name") or "").strip()
+        if name and not c.get("hidden"):
+            result.append({
+                "name": name,
+                "cluster_id": cid,
+                "photo_count": c.get("photo_count", 0),
+                "sample_face": c.get("sample_face", ""),
+            })
+    result.sort(key=lambda x: x["name"].lower())
+    return jsonify(result)
 
 
 @app.route("/api/photos/people/create", methods=["POST"])
@@ -1639,6 +1931,7 @@ def api_people_create():
     with open(fc_path, "w") as f:
         json.dump(clusters, f, indent=2)
     _ai["face_clusters"] = clusters
+    _rebuild_name_map()
 
     return jsonify({"status": "ok", "id": new_id, "name": name, "photo_count": len(photo_hashes)})
 
@@ -1648,11 +1941,14 @@ def api_people_create():
 def api_faces():
     """Return face clusters for people browsing."""
     clusters = _ai.get("face_clusters")
+    ss = _get_screenshot_hashes()
     if not clusters:
-        return jsonify({"clusters": []})
+        return jsonify({"clusters": [], "screenshot_count": len(ss)})
 
     result = []
     for cid, c in clusters.items():
+        if c.get("hidden"):
+            continue
         result.append({
             "id": cid,
             "name": c.get("name", ""),
@@ -1660,7 +1956,26 @@ def api_faces():
             "face_count": c.get("face_count", 0),
             "sample_face": c.get("sample_face", 0),
         })
-    return jsonify({"clusters": result})
+    return jsonify({"clusters": result, "screenshot_count": len(ss)})
+
+
+@app.route("/api/photos/screenshots")
+@require_auth
+def api_screenshots():
+    """Return all photos classified as screenshots/documents."""
+    ss_hashes = _get_screenshot_hashes()
+    if not ss_hashes:
+        return jsonify([])
+    items = load_photo_index()
+    results = []
+    for item in items:
+        url = item.get("thumb", "")
+        if url:
+            h = url.rsplit("/", 1)[-1].replace(".jpg", "")
+            if h in ss_hashes:
+                results.append(item)
+    results.sort(key=lambda x: -x.get("date", 0))
+    return jsonify(results)
 
 
 @app.route("/api/photos/face/<cluster_id>")
@@ -1672,6 +1987,7 @@ def api_face_photos(cluster_id):
         return jsonify([])
 
     photo_hashes = set(clusters[cluster_id].get("photo_hashes", []))
+    new_hashes = set(clusters[cluster_id].get("new_hashes", []))
     items = load_photo_index()
     results = []
     for item in items:
@@ -1679,8 +1995,12 @@ def api_face_photos(cluster_id):
         if url:
             h = url.rsplit("/", 1)[-1].replace(".jpg", "")
             if h in photo_hashes:
-                results.append(item)
-    results.sort(key=lambda x: x.get("date", 0), reverse=True)
+                item_copy = dict(item)
+                if h in new_hashes:
+                    item_copy["is_new"] = True
+                results.append(item_copy)
+    # New photos first, then by date
+    results.sort(key=lambda x: (0 if x.get("is_new") else 1, -x.get("date", 0)))
     return jsonify(results)
 
 
@@ -1698,6 +2018,7 @@ def api_name_face(cluster_id):
     fc_path = os.path.join(_AI_DIR, "face_clusters.json")
     with open(fc_path, "w") as f:
         json.dump(clusters, f, indent=2)
+    _rebuild_name_map()
 
     return jsonify({"status": "ok", "name": name})
 
@@ -1733,6 +2054,9 @@ def api_merge_faces():
     fc_path = os.path.join(_AI_DIR, "face_clusters.json")
     with open(fc_path, "w") as f:
         json.dump(clusters, f, indent=2)
+    _rebuild_name_map()
+    _invalidate_avatar(source_id)
+    _invalidate_avatar(target_id)
 
     return jsonify({
         "status": "ok",
@@ -1768,6 +2092,7 @@ def api_remove_from_face(cluster_id):
     fc_path = os.path.join(_AI_DIR, "face_clusters.json")
     with open(fc_path, "w") as f:
         json.dump(clusters, f, indent=2)
+    _invalidate_avatar(cluster_id)
 
     return jsonify({
         "status": "ok",
@@ -1863,13 +2188,405 @@ def api_faces_in_photo():
     return jsonify(result)
 
 
+@app.route("/api/photos/people/in-photo")
+@require_auth
+def api_people_in_photo():
+    """Return named people in a photo by cluster membership lookup."""
+    photo_hash = request.args.get("hash", "")
+    clusters = _ai.get("face_clusters") or {}
+    if not photo_hash or not clusters:
+        return jsonify([])
+    result = []
+    for cid, c in clusters.items():
+        if c.get("hidden"):
+            continue
+        name = (c.get("name") or "").strip()
+        if not name:
+            continue
+        excluded = set(c.get("excluded_hashes", []))
+        if photo_hash in set(c.get("photo_hashes", [])) and photo_hash not in excluded:
+            result.append({
+                "name": name,
+                "cluster_id": cid,
+                "sample_face": c.get("sample_face", ""),
+            })
+    return jsonify(result)
+
+
+def _square_face_crop(thumb_path, bbox, size=200):
+    """Crop a square region centered on a face from a thumbnail."""
+    from PIL import Image
+    import io
+    img = Image.open(thumb_path).convert("RGB")
+    tw, th = img.size
+    top, right, bottom, left = bbox
+    # Scale bbox if detected on 1024px original, not thumbnail
+    if right > tw or bottom > th:
+        if tw >= th:
+            ow, oh = 1024, round(th * 1024 / tw)
+        else:
+            oh, ow = 1024, round(tw * 1024 / th)
+        sx, sy = tw / ow, th / oh
+        top, bottom = int(top * sy), int(bottom * sy)
+        left, right = int(left * sx), int(right * sx)
+    cx = (left + right) / 2
+    cy = (top + bottom) / 2
+    side = max(right - left, bottom - top) * 1.6  # face + context
+    # Shrink side if it can't fit in the image at all
+    side = min(side, tw, th)
+    half = side / 2
+    # Clamp center so the square stays within image bounds
+    cx = max(half, min(tw - half, cx))
+    cy = max(half, min(th - half, cy))
+    x1, y1 = int(cx - half), int(cy - half)
+    x2, y2 = int(cx + half), int(cy + half)
+    crop = img.crop((x1, y1, x2, y2)).resize((size, size), Image.LANCZOS)
+    buf = io.BytesIO()
+    crop.save(buf, "JPEG", quality=88)
+    buf.seek(0)
+    return buf
+
+
+_AVATAR_DIR = os.path.join(_APP_DIR, "static", "face_avatars")
+os.makedirs(_AVATAR_DIR, exist_ok=True)
+
+
+def _invalidate_avatar(cluster_id):
+    """Delete cached avatar for a cluster so it gets regenerated."""
+    import glob as _glob
+    for f in _glob.glob(os.path.join(_AVATAR_DIR, f"{cluster_id}_v*.jpg")):
+        try:
+            os.unlink(f)
+        except OSError:
+            pass
+
+
+@app.route("/api/photos/people/<cluster_id>/avatar", methods=["GET", "POST"])
+@require_auth
+def api_person_avatar(cluster_id):
+    """GET: serve avatar. POST: set manual avatar from a photo hash."""
+    import numpy as np
+    from PIL import Image
+    import io
+
+    clusters = _ai.get("face_clusters") or {}
+    face_index = _ai.get("face_index")
+    c = clusters.get(cluster_id)
+    if not c:
+        return jsonify({"error": "Not found"}), 404
+
+    # --- POST: set manual avatar ---
+    if request.method == "POST":
+        data = request.json or {}
+        photo_hash = data.get("hash")
+        if not photo_hash or not face_index:
+            return jsonify({"error": "Invalid request"}), 400
+
+        emb_to_cluster = _ai.get("emb_to_cluster") or {}
+        face_embs = _ai.get("face_embs")
+        centroids = _ai.get("face_centroids") or {}
+        centroid = centroids.get(cluster_id)
+        faces = face_index.get(photo_hash, [])
+
+        # Find this person's face — try emb_to_cluster, then nearest to centroid
+        best_bbox = None
+        best_size = 0
+        for face in faces:
+            if emb_to_cluster.get(face["emb_idx"]) == cluster_id:
+                top, right, bottom, left = face["bbox"]
+                sz = max(right - left, bottom - top)
+                if sz > best_size:
+                    best_size = sz
+                    best_bbox = face["bbox"]
+
+        # Fallback: pick the face closest to this person's centroid
+        if not best_bbox and centroid is not None and face_embs is not None:
+            best_dist = 999.0
+            for face in faces:
+                idx = face["emb_idx"]
+                if idx < len(face_embs):
+                    dist = float(np.linalg.norm(face_embs[idx] - centroid))
+                    if dist < best_dist:
+                        best_dist = dist
+                        best_bbox = face["bbox"]
+
+        # Last resort: largest face
+        if not best_bbox:
+            best_size = 0
+            for face in faces:
+                top, right, bottom, left = face["bbox"]
+                sz = max(right - left, bottom - top)
+                if sz > best_size:
+                    best_size = sz
+                    best_bbox = face["bbox"]
+
+        chosen_bbox = best_bbox
+        if not chosen_bbox:
+            # No detected face at all — center crop the thumbnail
+            thumb_path = os.path.join(app.static_folder, "thumbs", photo_hash + ".jpg")
+            if not os.path.exists(thumb_path):
+                return jsonify({"error": "Photo not found"}), 404
+            c["avatar_hash"] = photo_hash
+            c["avatar_bbox"] = None
+            fc_path = os.path.join(_AI_DIR, "face_clusters.json")
+            with open(fc_path, "w") as f:
+                json.dump(clusters, f, indent=2)
+            _invalidate_avatar(cluster_id)
+            try:
+                img = Image.open(thumb_path).convert("RGB")
+                w, h = img.size
+                side = min(w, h)
+                left = (w - side) // 2
+                top = (h - side) // 2
+                sq = img.crop((left, top, left + side, top + side))
+                sq = sq.resize((300, 300), Image.LANCZOS)
+                buf = io.BytesIO()
+                sq.save(buf, "JPEG", quality=90)
+                buf.seek(0)
+                v = request.args.get("v", "11")
+                cache_path = os.path.join(_AVATAR_DIR, f"{cluster_id}_v{v}_{photo_hash[:8]}.jpg")
+                with open(cache_path, "wb") as fout:
+                    fout.write(buf.read())
+            except Exception:
+                pass
+            return jsonify({"status": "ok"})
+
+        # Save the override
+        c["avatar_hash"] = photo_hash
+        c["avatar_bbox"] = list(chosen_bbox)
+        fc_path = os.path.join(_AI_DIR, "face_clusters.json")
+        with open(fc_path, "w") as f:
+            json.dump(clusters, f, indent=2)
+
+        # Generate and cache the avatar crop
+        _invalidate_avatar(cluster_id)
+        thumb_path = os.path.join(app.static_folder, "thumbs", photo_hash + ".jpg")
+        if os.path.exists(thumb_path):
+            v = request.args.get("v", "11")
+            cache_path = os.path.join(_AVATAR_DIR, f"{cluster_id}_v{v}_{photo_hash[:8]}.jpg")
+            try:
+                buf = _square_face_crop(thumb_path, chosen_bbox, size=300)
+                data_bytes = buf.read()
+                with open(cache_path, "wb") as fout:
+                    fout.write(data_bytes)
+            except Exception:
+                pass
+
+        return jsonify({"status": "ok"})
+
+    # --- GET: serve avatar ---
+
+    v = request.args.get("v", "11")
+    avatar_hash = c.get("avatar_hash")
+
+    # Cache key includes avatar_hash so manual PFPs never get stale algorithmic cache
+    if avatar_hash:
+        cache_path = os.path.join(_AVATAR_DIR, f"{cluster_id}_v{v}_{avatar_hash[:8]}.jpg")
+    else:
+        cache_path = os.path.join(_AVATAR_DIR, f"{cluster_id}_v{v}.jpg")
+
+    if os.path.exists(cache_path):
+        return send_file(cache_path, mimetype="image/jpeg",
+                         max_age=86400, conditional=True)
+
+    # Manual avatar override — use the pinned photo + stored bbox
+    if avatar_hash:
+        thumb_path = os.path.join(app.static_folder, "thumbs", avatar_hash + ".jpg")
+        if os.path.exists(thumb_path):
+            # Use stored bbox, or find face via emb_to_cluster
+            avatar_bbox = c.get("avatar_bbox")
+            if not avatar_bbox and face_index:
+                emb_to_cluster = _ai.get("emb_to_cluster") or {}
+                faces = face_index.get(avatar_hash, [])
+                best_sz = 0
+                for face in faces:
+                    top, right, bottom, left = face["bbox"]
+                    sz = max(right - left, bottom - top)
+                    if emb_to_cluster.get(face["emb_idx"]) == cluster_id and sz > best_sz:
+                        best_sz = sz
+                        avatar_bbox = face["bbox"]
+                # Fallback: largest face in photo
+                if not avatar_bbox:
+                    for face in faces:
+                        top, right, bottom, left = face["bbox"]
+                        sz = max(right - left, bottom - top)
+                        if sz > best_sz:
+                            best_sz = sz
+                            avatar_bbox = face["bbox"]
+            if avatar_bbox:
+                try:
+                    buf = _square_face_crop(thumb_path, avatar_bbox, size=300)
+                    data_bytes = buf.read()
+                    with open(cache_path, "wb") as fout:
+                        fout.write(data_bytes)
+                    return send_file(cache_path, mimetype="image/jpeg",
+                                     max_age=86400, conditional=True)
+                except Exception:
+                    pass
+
+    if not face_index:
+        return jsonify({"error": "Not found"}), 404
+
+    face_embs = _ai.get("face_embs")
+    centroids = _ai.get("face_centroids") or {}
+    emb_to_cluster = _ai.get("emb_to_cluster") or {}
+    centroid = centroids.get(cluster_id)
+    excluded = set(c.get("excluded_hashes", []))
+    photo_hashes = [h for h in c.get("photo_hashes", []) if h not in excluded]
+
+    candidates = []
+    for ph in photo_hashes:
+        faces = face_index.get(ph, [])
+        best_size = 0
+        best_dist = 999.0
+        best_bbox = None
+        biggest_other = 0
+        for face in faces:
+            idx = face["emb_idx"]
+            top, right, bottom, left = face["bbox"]
+            face_size = max(right - left, bottom - top)
+            if emb_to_cluster.get(idx) != cluster_id:
+                # Track the largest *other* person's face
+                if face_size > biggest_other:
+                    biggest_other = face_size
+                continue
+            if face_size > best_size:
+                best_size = face_size
+                best_bbox = face["bbox"]
+                if centroid is not None and face_embs is not None and idx < len(face_embs):
+                    best_dist = float(np.linalg.norm(face_embs[idx] - centroid))
+
+        # Require a decently large face — reject tiny detections
+        if best_size < 80 or best_bbox is None:
+            continue
+
+        # Face dominance: ratio of our face to the biggest other face
+        # 1.0+ means we're the biggest face, <1.0 means someone else dominates
+        dominance = best_size / biggest_other if biggest_other > 0 else 5.0
+
+        candidates.append({
+            "hash": ph,
+            "bbox": best_bbox,
+            "face_size": best_size,
+            "face_dist": best_dist,
+            "num_faces": len(faces),
+            "dominance": dominance,
+        })
+
+    if not candidates:
+        return jsonify({"error": "No face found"}), 404
+
+    # Pre-sort by face size and only quality-score the top 50
+    candidates.sort(key=lambda c: -c["face_size"])
+    candidates = candidates[:50]
+
+    # Score candidates using actual image quality of the face crop
+    scored = []
+    for cand in candidates:
+        ph = cand["hash"]
+        thumb_path = os.path.join(app.static_folder, "thumbs", ph + ".jpg")
+        if not os.path.exists(thumb_path):
+            continue
+        try:
+            img = Image.open(thumb_path).convert("RGB")
+        except Exception:
+            continue
+
+        tw, th = img.size
+        top, right, bottom, left = cand["bbox"]
+        # Scale bbox if detected on 1024px original
+        if right > tw or bottom > th:
+            if tw >= th:
+                ow, oh = 1024, round(th * 1024 / tw)
+            else:
+                oh, ow = 1024, round(tw * 1024 / th)
+            sx, sy = tw / ow, th / oh
+            top, bottom = int(top * sy), int(bottom * sy)
+            left, right = int(left * sx), int(right * sx)
+
+        fw, fh = right - left, bottom - top
+        face_size = max(fw, fh)
+
+        # Crop the face region for quality checks
+        cx, cy = (left + right) / 2, (top + bottom) / 2
+        side = max(fw, fh) * 1.4
+        half = side / 2
+        x1 = max(0, int(cx - half))
+        y1 = max(0, int(cy - half))
+        x2 = min(tw, int(cx + half))
+        y2 = min(th, int(cy + half))
+        face_crop = img.crop((x1, y1, x2, y2))
+
+        # Sharpness — Laplacian variance via numpy (fast)
+        fc_small = face_crop.convert("L").resize((64, 64), Image.LANCZOS)
+        arr = np.array(fc_small, dtype=np.float32)
+        # Laplacian approximation: variance of difference from neighbors
+        lap = (4 * arr[1:-1, 1:-1]
+               - arr[:-2, 1:-1] - arr[2:, 1:-1]
+               - arr[1:-1, :-2] - arr[1:-1, 2:])
+        sharpness = float(np.var(lap))
+
+        # Brightness — reject too dark or blown out
+        avg_brightness = float(arr.mean())
+        brightness_ok = 1.0 if 60 < avg_brightness < 220 else 0.3
+
+        # Face-to-image ratio — bigger face in frame = better portrait
+        face_ratio = face_size / max(tw, th)
+
+        # Identity closeness (how close to cluster centroid)
+        identity = max(0.0, 1.0 - min(cand["face_dist"], 2.0))
+
+        # Fewer faces in photo = more likely a portrait
+        solo_bonus = 1.0 if cand["num_faces"] <= 2 else 0.6
+
+        # Face dominance — is this person the star of the photo?
+        # If someone else's face is bigger, heavily penalize
+        dom = cand["dominance"]
+        if dom < 0.8:
+            dominance_mult = 0.2    # someone else dominates — bad avatar
+        elif dom < 1.2:
+            dominance_mult = 0.7    # roughly equal — meh
+        else:
+            dominance_mult = 1.0    # we're the biggest face — good
+
+        # Composite score — face size, sharpness, and dominance rule
+        score = (
+            face_size * 3.0 +              # big face = good
+            sharpness * 0.005 +             # sharp = good
+            face_ratio * 500.0 +            # face fills frame = good
+            identity * 80.0 +               # looks like this person = good
+            solo_bonus * 100.0              # solo/duo photo = good
+        ) * brightness_ok * dominance_mult  # dark/dominated = bad
+
+        scored.append((score, ph, cand["bbox"]))
+
+    if not scored:
+        return jsonify({"error": "No face found"}), 404
+
+    scored.sort(key=lambda x: -x[0])
+
+    # Crop around the actual face
+    for _, best_hash, bbox in scored[:10]:
+        thumb_path = os.path.join(app.static_folder, "thumbs", best_hash + ".jpg")
+        if not os.path.exists(thumb_path):
+            continue
+        try:
+            buf = _square_face_crop(thumb_path, bbox, size=300)
+            data = buf.read()
+            with open(cache_path, "wb") as f:
+                f.write(data)
+            return send_file(cache_path, mimetype="image/jpeg",
+                             max_age=86400, conditional=True)
+        except Exception:
+            continue
+
+    return jsonify({"error": "No usable face found"}), 404
+
+
 @app.route("/api/photos/face-crop/<photo_hash>/<int:emb_idx>")
 @require_auth
 def api_face_crop(photo_hash, emb_idx):
     """Serve a cropped face image with padding."""
-    from PIL import Image
-    import io
-
     face_index = _ai.get("face_index")
     if not face_index:
         return jsonify({"error": "No face index"}), 404
@@ -1879,21 +2596,12 @@ def api_face_crop(photo_hash, emb_idx):
     if not face:
         return jsonify({"error": "Face not found"}), 404
 
-    img_path = _hash_to_path.get(photo_hash + ".jpg")
-    if not img_path or not os.path.exists(img_path):
+    thumb_path = os.path.join(app.static_folder, "thumbs", photo_hash + ".jpg")
+    if not os.path.exists(thumb_path):
         return jsonify({"error": "Photo not found"}), 404
 
     try:
-        img = Image.open(img_path).convert("RGB")
-        w, h = img.size
-        top, right, bottom, left = face["bbox"]
-        pad = int(max(bottom - top, right - left) * 0.35)
-        box = (max(0, left - pad), max(0, top - pad),
-               min(w, right + pad), min(h, bottom + pad))
-        crop = img.crop(box).resize((180, 180), Image.LANCZOS)
-        buf = io.BytesIO()
-        crop.save(buf, "JPEG", quality=85)
-        buf.seek(0)
+        buf = _square_face_crop(thumb_path, face["bbox"], size=180)
         return send_file(buf, mimetype="image/jpeg",
                          max_age=86400, conditional=True)
     except Exception as e:
@@ -1944,10 +2652,175 @@ def api_move_face():
     fc_path = os.path.join(_AI_DIR, "face_clusters.json")
     with open(fc_path, "w") as f:
         json.dump(clusters, f, indent=2)
+    _invalidate_avatar(from_id)
+    _invalidate_avatar(to_id)
 
     return jsonify({"status": "ok", "moved": True,
                     "from_count": from_c["photo_count"],
                     "to_count": to_c["photo_count"]})
+
+
+@app.route("/api/photos/face/review")
+@require_auth
+def api_face_review():
+    """Return a batch of ambiguous faces for user review (Google Photos style)."""
+    clusters = _ai.get("face_clusters")
+    face_index = _ai.get("face_index")
+    embs = _ai.get("face_embs")
+    if not clusters or face_index is None or embs is None:
+        return jsonify({"items": [], "remaining": 0})
+
+    named = {cid: c for cid, c in clusters.items() if c.get("name")}
+    if not named:
+        return jsonify({"items": [], "remaining": 0})
+
+    assigned = set()
+    for c in clusters.values():
+        assigned.update(c.get("photo_hashes", []))
+
+    # Build per-cluster excluded sets so we skip already-rejected pairs
+    cluster_excluded = {}
+    for cid, c in clusters.items():
+        excl = c.get("excluded_hashes")
+        if excl:
+            cluster_excluded[cid] = set(excl)
+
+    emb_to_hash = {}
+    for ph, faces in face_index.items():
+        for face in faces:
+            emb_to_hash[face["emb_idx"]] = ph
+
+    # Compute centroids
+    centroid_cids, centroid_vecs = [], []
+    for cid, c in named.items():
+        excluded = set(c.get("excluded_hashes", []))
+        ph_set = set(c.get("photo_hashes", [])) - excluded
+        idxs = [idx for idx, ph in emb_to_hash.items() if ph in ph_set and idx < len(embs)]
+        if idxs:
+            centroid_cids.append(cid)
+            centroid_vecs.append(embs[idxs].mean(axis=0))
+
+    if not centroid_vecs:
+        return jsonify({"items": [], "remaining": 0})
+
+    import numpy as _np
+    centroid_mat = _np.array(centroid_vecs)
+
+    THRESH = 1.05
+    items = load_photo_index()
+    hash_to_item = {}
+    for item in items:
+        url = item.get("thumb", "")
+        if url:
+            h = url.rsplit("/", 1)[-1].replace(".jpg", "")
+            hash_to_item[h] = item
+
+    candidates = []
+    for emb_idx, ph in emb_to_hash.items():
+        if ph in assigned or emb_idx >= len(embs):
+            continue
+        dists = _np.linalg.norm(centroid_mat - embs[emb_idx], axis=1)
+        order = _np.argsort(dists)
+        # Walk down candidates until we find one not excluded
+        best_cid = None
+        best_d = None
+        second_d = 999
+        for rank, oi in enumerate(order):
+            cid = centroid_cids[int(oi)]
+            d = float(dists[oi])
+            excl = cluster_excluded.get(cid)
+            if excl and ph in excl:
+                continue  # already rejected for this person
+            if best_cid is None:
+                best_cid = cid
+                best_d = d
+            elif second_d == 999:
+                second_d = d
+                break
+        if best_cid is None or best_d >= THRESH:
+            continue
+        candidates.append({
+            "photo_hash": ph,
+            "emb_idx": emb_idx,
+            "best_cid": best_cid,
+            "best_name": named[best_cid].get("name", ""),
+            "best_dist": best_d,
+            "margin": second_d - best_d,
+            "sample_face": named[best_cid].get("sample_face", ""),
+        })
+
+    # Sort: highest confidence first (lowest distance, highest margin)
+    candidates.sort(key=lambda x: (x["best_dist"] - x["margin"] * 2))
+
+    # Skip already-reviewed photos (sent from frontend)
+    skip_param = request.args.get("skip", "")
+    skip_hashes = set(skip_param.split(",")) if skip_param else set()
+
+    # Dedupe by photo hash (one review per photo)
+    seen = set()
+    unique = []
+    for c in candidates:
+        if c["photo_hash"] not in seen and c["photo_hash"] not in skip_hashes:
+            seen.add(c["photo_hash"])
+            unique.append(c)
+
+    batch_size = int(request.args.get("batch", 20))
+    batch = unique[:batch_size]
+
+    result = []
+    for c in batch:
+        item = hash_to_item.get(c["photo_hash"])
+        if not item:
+            continue
+        result.append({
+            "photo_hash": c["photo_hash"],
+            "thumb": item.get("thumb_hq") or item.get("thumb", ""),
+            "path": item.get("path", ""),
+            "suggested_cid": c["best_cid"],
+            "suggested_name": c["best_name"],
+            "suggested_avatar": c["sample_face"],
+            "confidence": round(max(0, min(100, (1.05 - c["best_dist"]) / 1.05 * 100)), 1),
+            "margin": round(c["margin"], 3),
+        })
+
+    return jsonify({"items": result, "remaining": len(unique)})
+
+
+@app.route("/api/photos/face/review", methods=["POST"])
+@require_auth
+def api_face_review_submit():
+    """Accept or reject a face review suggestion."""
+    data = request.json or {}
+    photo_hash = data.get("photo_hash")
+    cluster_id = data.get("cluster_id")
+    accept = data.get("accept", False)
+
+    clusters = _ai.get("face_clusters")
+    if not clusters or not photo_hash:
+        return jsonify({"error": "Invalid request"}), 400
+
+    if accept and cluster_id in clusters:
+        c = clusters[cluster_id]
+        if photo_hash not in c.get("photo_hashes", []):
+            c.setdefault("photo_hashes", []).append(photo_hash)
+            c["photo_count"] = len(c["photo_hashes"])
+        # Un-exclude if previously excluded
+        excl = set(c.get("excluded_hashes", []))
+        if photo_hash in excl:
+            excl.discard(photo_hash)
+            c["excluded_hashes"] = list(excl) if excl else []
+    elif not accept and cluster_id in clusters:
+        # Mark as excluded from this cluster so it doesn't get suggested again
+        c = clusters[cluster_id]
+        excl = set(c.get("excluded_hashes", []))
+        excl.add(photo_hash)
+        c["excluded_hashes"] = list(excl)
+
+    fc_path = os.path.join(_AI_DIR, "face_clusters.json")
+    with open(fc_path, "w") as f:
+        json.dump(clusters, f, indent=2)
+
+    return jsonify({"status": "ok"})
 
 
 def _run_startup_tasks():

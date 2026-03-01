@@ -200,11 +200,16 @@ def scan():
 
     SKIP_DIRS = {"takeouts"}
 
+    SKIP_PATTERNS = {"branded", "low-res"}
+
     all_files = []
     for root, dirs, files in os.walk(PHOTOS_ROOT):
         dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
         for fname in files:
             if fname.startswith("._"):
+                continue
+            fname_lower = fname.lower()
+            if any(pat in fname_lower for pat in SKIP_PATTERNS):
                 continue
             ext = os.path.splitext(fname)[1].lower()
             if ext in ALL_EXTS:
@@ -278,6 +283,8 @@ def scan_incremental():
 
     known_paths = {e["path"] for e in existing}
 
+    SKIP_PATTERNS = {"branded", "low-res"}
+
     # Walk filesystem for all media files
     all_files = []
     for root, dirs, files in os.walk(PHOTOS_ROOT):
@@ -285,14 +292,23 @@ def scan_incremental():
         for fname in files:
             if fname.startswith("._"):
                 continue
+            fname_lower = fname.lower()
+            if any(pat in fname_lower for pat in SKIP_PATTERNS):
+                continue
             ext = os.path.splitext(fname)[1].lower()
             if ext in ALL_EXTS:
                 filepath = os.path.join(root, fname)
                 if filepath not in known_paths:
                     all_files.append((filepath, ext))
 
-    # Also remove index entries for files that no longer exist on disk
-    still_exist = [e for e in existing if os.path.exists(e["path"])]
+    # Remove index entries for files that no longer exist on disk or match skip patterns
+    def _should_keep(e):
+        if not os.path.exists(e["path"]):
+            return False
+        fname_lower = os.path.basename(e["path"]).lower()
+        return not any(pat in fname_lower for pat in SKIP_PATTERNS)
+
+    still_exist = [e for e in existing if _should_keep(e)]
     removed = len(existing) - len(still_exist)
     if removed:
         print(f"[incremental] Removed {removed} entries for deleted files.")

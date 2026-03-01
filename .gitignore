@@ -24,6 +24,7 @@ ai_rescan.log
 # System config that may contain local paths/users
 prometheon-sudoers
 *-sudoers
+nginx-prometheon.conf
 
 # TLS certs and keys (never commit)
 *.crt
@@ -37,6 +38,7 @@ prometheon-sudoers
 static/thumbs/
 static/thumbs_hq/
 static/faces/
+static/face_avatars/
 
 # OS / IDE
 .DS_Store

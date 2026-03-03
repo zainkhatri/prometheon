@@ -1909,8 +1909,10 @@ function showLbItem(idx) {
         img.onerror = () => { loading.textContent = 'Failed to load'; };
         // Double-tap or pinch to swap to full original immediately
         img.addEventListener('dblclick', () => {
-            if (img.dataset.fullSrc) img.src = img.dataset.fullSrc;
-            else if (fullUrl) img.src = fullUrl;
+            const prev = img.src;
+            const swap = (url) => { img.onerror = () => { img.onerror = null; img.src = prev; }; img.src = url; };
+            if (img.dataset.fullSrc) swap(img.dataset.fullSrc);
+            else if (fullUrl) swap(fullUrl);
         });
         lbMediaWrap.appendChild(img);
     }
@@ -2111,13 +2113,19 @@ function _lbApplyZoom(animate) {
         img.classList.add('lb-zoomed');
         lbZoomed = true;
         if (_lbZoomScale > 1.5) {
-            if (img.dataset.fullSrc && img.src !== img.dataset.fullSrc) img.src = img.dataset.fullSrc;
+            const prevSrc = img.src;
+            const swapSrc = (url) => {
+                if (img.src === url) return;
+                img.onerror = () => { img.onerror = null; img.src = prevSrc; };
+                img.src = url;
+            };
+            if (img.dataset.fullSrc) swapSrc(img.dataset.fullSrc);
             else {
                 const items = _getLbItems();
                 const item = items[lbIndex];
                 if (item && item.path) {
                     const fullUrl = '/media' + encodeURI(item.path);
-                    if (img.src.indexOf('/media') === -1) img.src = fullUrl;
+                    if (prevSrc.indexOf('/media') === -1) swapSrc(fullUrl);
                 }
             }
         }

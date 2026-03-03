@@ -2085,6 +2085,8 @@ document.addEventListener('keydown', (e) => {
 // ─── Lightbox gesture system ───
 let _lbGesture = null;
 let _lbPinchStartDist = 0, _lbPinchStartScale = 1;
+let _lbPinchCenterX = 0, _lbPinchCenterY = 0;
+let _lbPinchStartZoomX = 0, _lbPinchStartZoomY = 0;
 let _lbLastTap = 0, _lbLastTapX = 0, _lbLastTapY = 0;
 let _lbPanStartX = 0, _lbPanStartY = 0, _lbPanStartZoomX = 0, _lbPanStartZoomY = 0;
 let _lbIsPinching = false, _lbIsPanning = false;
@@ -2224,6 +2226,10 @@ lightbox.addEventListener('touchstart', (e) => {
         const dy = e.touches[0].clientY - e.touches[1].clientY;
         _lbPinchStartDist = Math.sqrt(dx * dx + dy * dy);
         _lbPinchStartScale = _lbZoomScale;
+        _lbPinchCenterX = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+        _lbPinchCenterY = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+        _lbPinchStartZoomX = _lbZoomX;
+        _lbPinchStartZoomY = _lbZoomY;
     }
 }, { passive: true });
 lightbox.addEventListener('touchmove', (e) => {
@@ -2234,6 +2240,15 @@ lightbox.addEventListener('touchmove', (e) => {
     let s = _lbPinchStartScale * (dist / _lbPinchStartDist);
     if (s < 1) s = 1 - (1 - s) * 0.3;
     if (s > 5) s = 5 + (s - 5) * 0.2;
+    // Current pinch center (fingers may have moved)
+    const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2;
+    const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2;
+    // Zoom toward initial pinch center + follow finger pan
+    const ratio = s / _lbPinchStartScale;
+    const relX = _lbPinchCenterX - window.innerWidth / 2;
+    const relY = _lbPinchCenterY - window.innerHeight / 2;
+    _lbZoomX = relX * (1 - ratio) + _lbPinchStartZoomX * ratio + (cx - _lbPinchCenterX);
+    _lbZoomY = relY * (1 - ratio) + _lbPinchStartZoomY * ratio + (cy - _lbPinchCenterY);
     _lbZoomScale = s;
     _lbApplyZoom(false);
     e.preventDefault();
@@ -2253,16 +2268,16 @@ lightbox.addEventListener('touchend', (e) => {
         // Clear pending single-tap
         clearTimeout(_lbTapTimer);
         if (now - _lbLastTap < 300 && Math.abs(tx - _lbLastTapX) < 30 && Math.abs(ty - _lbLastTapY) < 30) {
-            // Double tap — step through zoom levels
+            // Double tap — step through zoom levels toward tap point
             const _zoomSteps = [1, 2, 3.5, 5];
             const nextStep = _zoomSteps.find(s => s > _lbZoomScale + 0.1);
             if (nextStep) {
-                const prevScale = _lbZoomScale;
+                const ratio = nextStep / _lbZoomScale;
+                const relX = tx - window.innerWidth / 2;
+                const relY = ty - window.innerHeight / 2;
+                _lbZoomX = relX * (1 - ratio) + _lbZoomX * ratio;
+                _lbZoomY = relY * (1 - ratio) + _lbZoomY * ratio;
                 _lbZoomScale = nextStep;
-                // Pan toward tap point proportionally to zoom increase
-                const factor = 1 - prevScale / nextStep;
-                _lbZoomX += (window.innerWidth / 2 - tx) * factor * nextStep;
-                _lbZoomY += (window.innerHeight / 2 - ty) * factor * nextStep;
             } else {
                 _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
             }

@@ -60,18 +60,19 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            transition: transform 0.25s ease, filter 0.25s ease;
-            will-change: transform;
-        }
-        .thumb-container:hover img {
-            transform: scale(1.05);
-            filter: brightness(1.1);
         }
         @media (hover: hover) {
+            .thumb-container img {
+                transition: transform 0.25s ease, filter 0.25s ease;
+            }
+            .thumb-container:hover img {
+                transform: scale(1.05);
+                filter: brightness(1.1);
+            }
             .thumb-container:active { opacity: 0.8; }
         }
         @media (hover: none) {
-            .thumb-container:active { transform: scale(0.95); transition: transform 0.1s ease; }
+            .thumb-container:active { transform: scale(0.96); }
         }
         .video-badge {
             position: absolute;
@@ -215,9 +216,7 @@
             cursor: pointer;
             padding: 5px 12px 5px 5px;
             border-radius: 100px;
-            background: rgba(255,255,255,0.1);
-            backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
+            background: rgba(255,255,255,0.15);
             border: 1px solid rgba(255,255,255,0.1);
             transition: all 0.2s;
         }
@@ -301,7 +300,7 @@
             width: 100%;
             height: 100%;
             object-fit: cover;
-            filter: blur(60px) brightness(0.15) saturate(0.5);
+            filter: blur(40px) brightness(0.15) saturate(0.5);
             transform: scale(1.3);
         }
         .lb-loading {
@@ -896,6 +895,14 @@
             .lb-footer { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
         }
 
+        /* GPU-friendly sections for mobile scroll */
+        @media (hover: none) {
+            section[data-month-key] { content-visibility: auto; contain-intrinsic-size: auto 500px; }
+            .lb-nav { display: none !important; }
+            .lb-thumb-bg img { filter: blur(30px) brightness(0.15) saturate(0.5) !important; }
+        }
+        body.lb-open { overflow: hidden !important; overscroll-behavior: none; }
+
         @media (max-width: 640px) {
             #main-header {
                 flex-wrap: wrap;
@@ -919,8 +926,6 @@
             #trash-btn, #people-btn, #select-btn, #upload-btn { padding: 6px 10px !important; }
 
             .lb-top, .lb-bottom { padding-left: 16px; padding-right: 16px; }
-            .lb-nav { width: 36px; height: 64px; }
-            .lb-nav svg { width: 24px; height: 24px; }
             .lb-date { font-size: 14px; }
             #lb-people .lb-person { padding: 4px 8px 4px 4px; }
             #lb-people .lb-person-avatar { width: 28px; height: 28px; }
@@ -1790,7 +1795,7 @@ function openLightbox(idx, customItems) {
     lbZoomed = false;
     _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
     lightbox.classList.add('active');
-    document.body.style.overflow = 'hidden';
+    document.body.classList.add('lb-open');
     showLbItem(idx);
     _lbShowUi();
 }
@@ -1802,7 +1807,7 @@ function closeLightbox() {
     lbMediaWrap.style.transition = '';
     lightbox.style.background = '';
     lbMediaWrap.innerHTML = '';
-    document.body.style.overflow = '';
+    document.body.classList.remove('lb-open');
     lbIndex = -1;
     lbZoomed = false;
     _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
@@ -1886,49 +1891,77 @@ function showLbItem(idx) {
         lbMediaWrap.appendChild(img);
     }
 
-    // Show people in this photo
+    // Preload prev/next images
+    _lbPreloadAdjacent(idx);
+
+    // Show people in this photo (debounced so rapid swiping doesn't fire many requests)
     const lbPeople = document.getElementById('lb-people');
     lbPeople.innerHTML = '';
+    clearTimeout(showLbItem._peopleTimer);
     const thumbUrl = item.thumb || '';
     const photoHash = thumbUrl.split('/').pop().replace('.jpg', '');
     if (photoHash) {
         const savedIdx = idx;
-        fetch('/api/photos/people/in-photo?hash=' + encodeURIComponent(photoHash))
-            .then(r => r.ok ? r.json() : [])
-            .then(people => {
-                if (lbIndex !== savedIdx) return;
-                lbPeople.innerHTML = '';
-                people.forEach(p => {
-                    const el = document.createElement('div');
-                    el.className = 'lb-person';
-                    const av = document.createElement('img');
-                    av.className = 'lb-person-avatar';
-                    av.src = '/api/photos/people/' + p.cluster_id + '/avatar?v=13';
-                    av.onerror = function() { this.src = '/static/thumbs/' + p.sample_face + '.jpg'; };
-                    const nm = document.createElement('span');
-                    nm.className = 'lb-person-name';
-                    nm.textContent = p.name;
-                    el.appendChild(av);
-                    el.appendChild(nm);
-                    el.addEventListener('click', (e) => {
-                        e.stopPropagation();
-                        closeLightbox();
-                        document.getElementById('people-panel').classList.add('active');
-                        openPersonDetail({ id: p.cluster_id, name: p.name, photo_count: 0, sample_face: p.sample_face });
+        showLbItem._peopleTimer = setTimeout(() => {
+            if (lbIndex !== savedIdx) return;
+            fetch('/api/photos/people/in-photo?hash=' + encodeURIComponent(photoHash))
+                .then(r => r.ok ? r.json() : [])
+                .then(people => {
+                    if (lbIndex !== savedIdx) return;
+                    lbPeople.innerHTML = '';
+                    people.forEach(p => {
+                        const el = document.createElement('div');
+                        el.className = 'lb-person';
+                        const av = document.createElement('img');
+                        av.className = 'lb-person-avatar';
+                        av.src = '/api/photos/people/' + p.cluster_id + '/avatar?v=13';
+                        av.onerror = function() { this.src = '/static/thumbs/' + p.sample_face + '.jpg'; };
+                        const nm = document.createElement('span');
+                        nm.className = 'lb-person-name';
+                        nm.textContent = p.name;
+                        el.appendChild(av);
+                        el.appendChild(nm);
+                        el.addEventListener('click', (e) => {
+                            e.stopPropagation();
+                            closeLightbox();
+                            document.getElementById('people-panel').classList.add('active');
+                            openPersonDetail({ id: p.cluster_id, name: p.name, photo_count: 0, sample_face: p.sample_face });
+                        });
+                        lbPeople.appendChild(el);
                     });
-                    lbPeople.appendChild(el);
-                });
-            })
-            .catch(() => {});
+                })
+                .catch(() => {});
+        }, 300);
     }
 }
+showLbItem._peopleTimer = null;
+
+// Preload adjacent images for instant swiping
+function _lbPreloadAdjacent(idx) {
+    const items = _getLbItems();
+    [idx - 1, idx + 1].forEach(i => {
+        if (i < 0 || i >= items.length) return;
+        const it = items[i];
+        if (it.type === 'video') return;
+        const src = it.thumb_hq || it.thumb;
+        if (src && !_lbPreloadCache.has(src)) {
+            const img = new Image();
+            img.src = src;
+            _lbPreloadCache.add(src);
+        }
+    });
+}
+const _lbPreloadCache = new Set();
 
 document.getElementById('lb-close').addEventListener('click', closeLightbox);
 lightbox.addEventListener('mousemove', _lbShowUi);
+// Mouse-only click handler — touch uses gesture system + double-tap timer
+let _lbTapTimer = null;
 lightbox.addEventListener('click', (e) => {
     if (e.target.closest('.lb-btn, .lb-nav, #lb-people, video')) return;
+    // On touch, single-tap UI toggle is handled via touchend double-tap timer
+    if ('ontouchstart' in window && e.target.closest('#lb-media-wrap')) return;
     if (e.target.closest('#lb-media-wrap')) {
-        // Toggle UI on tap/click the photo
         if (lightbox.classList.contains('lb-ui-visible')) {
             lightbox.classList.remove('lb-ui-visible');
             clearTimeout(_lbUiTimer);
@@ -1937,7 +1970,6 @@ lightbox.addEventListener('click', (e) => {
         }
         return;
     }
-    // Click on dark background area — close lightbox
     closeLightbox();
 });
 document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex > 0) showLbItem(lbIndex - 1); });
@@ -2072,6 +2104,7 @@ lightbox.addEventListener('touchmove', (e) => {
         _lbZoomY = _lbPanStartZoomY + (e.touches[0].clientY - _lbPanStartY);
         _lbApplyZoom(false);
         _lbGesture = null;
+        e.preventDefault();
         return;
     }
     const dx = e.touches[0].clientX - _lbGesture.startX;
@@ -2082,6 +2115,7 @@ lightbox.addEventListener('touchmove', (e) => {
         _lbGesture.dir = absDx >= absDy ? 'h' : 'v';
     }
     if (!_lbGesture.locked) return;
+    e.preventDefault(); // prevent iOS bounce/scroll
     _lbGesture.moved = true;
     if (_lbGesture.dir === 'h') {
         const items = _getLbItems();
@@ -2095,7 +2129,7 @@ lightbox.addEventListener('touchmove', (e) => {
         lightbox.style.transition = 'none';
         lightbox.style.background = 'rgba(0,0,0,' + (1 - progress * 0.6) + ')';
     }
-}, { passive: true });
+}, { passive: false });
 
 lightbox.addEventListener('touchend', (e) => {
     _lbIsPanning = false;
@@ -2150,11 +2184,14 @@ lightbox.addEventListener('touchend', (e) => {
         _lbApplyZoom(true);
         return;
     }
-    // Double-tap
+    // Double-tap to zoom / single-tap to toggle UI
     if (e.touches.length === 0 && e.changedTouches.length === 1 && !_lbIsPanning) {
         const now = Date.now();
         const tx = e.changedTouches[0].clientX, ty = e.changedTouches[0].clientY;
+        // Clear pending single-tap
+        clearTimeout(_lbTapTimer);
         if (now - _lbLastTap < 300 && Math.abs(tx - _lbLastTapX) < 30 && Math.abs(ty - _lbLastTapY) < 30) {
+            // Double tap — toggle zoom
             if (_lbZoomScale > 1) { _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0; }
             else {
                 _lbZoomScale = 2.5;
@@ -2163,7 +2200,19 @@ lightbox.addEventListener('touchend', (e) => {
             }
             _lbApplyZoom(true);
             _lbLastTap = 0;
-        } else { _lbLastTap = now; _lbLastTapX = tx; _lbLastTapY = ty; }
+        } else {
+            _lbLastTap = now; _lbLastTapX = tx; _lbLastTapY = ty;
+            // Single tap — toggle UI after brief wait to distinguish from double-tap
+            _lbTapTimer = setTimeout(() => {
+                if (!lightbox.classList.contains('active')) return;
+                if (lightbox.classList.contains('lb-ui-visible')) {
+                    lightbox.classList.remove('lb-ui-visible');
+                    clearTimeout(_lbUiTimer);
+                } else {
+                    _lbShowUi();
+                }
+            }, 250);
+        }
     }
 }, { passive: true });
 

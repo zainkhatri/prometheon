@@ -52,9 +52,6 @@ os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs(_THUMB_DIR, exist_ok=True)
 os.makedirs(_THUMB_HQ_DIR, exist_ok=True)
 os.makedirs(_THUMB_PREVIEW_DIR, exist_ok=True)
-_thumb_cache = {}
-_thumb_cache_lock = threading.Lock()
-
 _landscape_thumbs = set()   # thumb URLs known to be landscape (w > h)
 _landscape_index_ready = False
 
@@ -107,39 +104,29 @@ def _jpeg_dimensions(data):
 
 
 def _build_landscape_index():
-    """Scan all cached thumbnails and record which are landscape orientation."""
+    """Scan thumbnail files on disk and record which are landscape orientation."""
     global _landscape_index_ready
     count = 0
-    with _thumb_cache_lock:
-        keys = list(_thumb_cache.keys())
-    for key in keys:
-        data = _thumb_cache.get(key)
-        if not data:
-            continue
-        dims = _jpeg_dimensions(data)
-        if dims and dims[0] > dims[1]:
-            name = key[1]  # key is (directory, filename)
-            _landscape_thumbs.add(name)
-            count += 1
-    _landscape_index_ready = True
-    print(f"[warmer] Landscape index built: {count} landscape out of {len(keys)} thumbs.")
-
-
-def _read_thumb(directory, name):
-    """Return thumbnail bytes from RAM cache, reading from disk on first access."""
-    key = (directory, name)
-    data = _thumb_cache.get(key)
-    if data is not None:
-        return data
-    path = os.path.join(directory, name)
+    total = 0
     try:
-        with open(path, "rb") as f:
-            data = f.read()
-        with _thumb_cache_lock:
-            _thumb_cache[key] = data
-        return data
+        for name in os.listdir(_THUMB_DIR):
+            if not name.endswith(".jpg"):
+                continue
+            total += 1
+            path = os.path.join(_THUMB_DIR, name)
+            try:
+                with open(path, "rb") as f:
+                    header = f.read(512)  # first 512 bytes has JPEG dimensions
+                dims = _jpeg_dimensions(header)
+                if dims and dims[0] > dims[1]:
+                    _landscape_thumbs.add(name)
+                    count += 1
+            except OSError:
+                pass
     except OSError:
-        return None
+        pass
+    _landscape_index_ready = True
+    print(f"[warmer] Landscape index built: {count} landscape out of {total} thumbs.")
 
 
 def _preload_thumb_batch(items):
@@ -149,7 +136,9 @@ def _preload_thumb_batch(items):
 
 @app.before_request
 def _serve_thumb_on_demand():
-    """Intercept thumbnail requests. Serve from RAM, disk, or generate on demand."""
+    """Intercept thumbnail requests. Serve from disk via send_file (OS page cache handles speed).
+    All tiers are pre-generated on startup so this is just a disk read — no generation needed.
+    """
     path = request.path
     if path.startswith("/static/thumbs_preview/"):
         directory = _THUMB_PREVIEW_DIR
@@ -167,23 +156,14 @@ def _serve_thumb_on_demand():
         abort(401)
 
     name = secure_filename(path.rsplit("/", 1)[-1])
+    disk_path = os.path.join(directory, name)
 
-    # 1. RAM cache hit (skip RAM cache for large previews to save memory)
-    if tier != "preview":
-        data = _read_thumb(directory, name)
-        if data is not None:
-            return Response(data, mimetype="image/jpeg", headers={
-                "Cache-Control": "public, max-age=604800, immutable",
-            })
+    # 1. Serve from disk (OS page cache makes this fast — no Python RAM needed)
+    if os.path.exists(disk_path):
+        return send_file(disk_path, mimetype="image/jpeg",
+                         max_age=604800, conditional=True)
 
-    # 2. Disk hit for preview tier
-    if tier == "preview":
-        disk_path = os.path.join(directory, name)
-        if os.path.exists(disk_path):
-            return send_file(disk_path, mimetype="image/jpeg",
-                             max_age=604800, conditional=True)
-
-    # 3. Generate from original photo
+    # 2. Fallback: generate if somehow missing (shouldn't happen after warmup)
     orig_path = _hash_to_path.get(name)
     if orig_path and os.path.isfile(orig_path):
         ext = os.path.splitext(orig_path)[1].lower()
@@ -194,22 +174,11 @@ def _serve_thumb_on_demand():
             size, quality = 800, 2
         else:
             size, quality = 475, 3
-        out_path = os.path.join(directory, name)
-        if gen_thumb(orig_path, out_path, size, quality, is_video):
-            if tier == "preview":
-                return send_file(out_path, mimetype="image/jpeg",
-                                 max_age=604800, conditional=True)
-            data = _read_thumb(directory, name)
+        if gen_thumb(orig_path, disk_path, size, quality, is_video):
+            return send_file(disk_path, mimetype="image/jpeg",
+                             max_age=604800, conditional=True)
 
-    if tier == "preview":
-        abort(404)
-
-    if data is None:
-        abort(404)
-
-    return Response(data, mimetype="image/jpeg", headers={
-        "Cache-Control": "public, max-age=604800, immutable",
-    })
+    abort(404)
 
 
 # ─── Session persistence ───
@@ -571,8 +540,11 @@ def thumb_bundle():
         for item in images:
             thumb_url = item["thumb"]
             name = secure_filename(thumb_url.rsplit("/", 1)[-1])
-            data = _read_thumb(_THUMB_DIR, name)
-            if data is None:
+            path = os.path.join(_THUMB_DIR, name)
+            try:
+                with open(path, "rb") as f:
+                    data = f.read()
+            except OSError:
                 continue
             url_bytes = thumb_url.encode("utf-8")
             yield struct.pack(">H", len(url_bytes)) + url_bytes + struct.pack(">I", len(data)) + data
@@ -1298,10 +1270,6 @@ def rotate_photo():
                     results["errors"].append(f"{photo_hash}: {e}")
         if ok:
             results["rotated"] += 1
-            name = photo_hash + ".jpg"
-            with _thumb_cache_lock:
-                _thumb_cache.pop((_THUMB_DIR, name), None)
-                _thumb_cache.pop((_THUMB_HQ_DIR, name), None)
 
     return jsonify({"success": True, **results})
 
@@ -1364,31 +1332,16 @@ def _startup_preload():
 
 
 def _warm_all_thumbs(items):
-    """Pre-generate and RAM-cache ALL thumbnail tiers so nothing is ever on-demand.
-    Tiers: 475px grid, 800px HQ (lightbox), 2048px preview (lightbox sharp).
-    Grid + HQ go into RAM. Preview stays on disk (too large for RAM but pre-generated).
+    """Pre-generate ALL thumbnail tiers to disk so nothing is ever on-demand.
+    Tiers: 475px grid, 800px HQ, 2048px preview — all on disk, served via send_file.
+    OS page cache handles hot-path speed. Zero Python RAM used for image data.
     """
     total = len(items)
-
-    # ── Phase 1: Load every existing thumb + HQ into RAM ──
-    thumb_loaded = hq_loaded = 0
-    for item in items:
-        url = item.get("thumb", "")
-        if not url:
-            continue
-        name = url.rsplit("/", 1)[-1]
-        if os.path.exists(os.path.join(_THUMB_DIR, name)) and (_THUMB_DIR, name) not in _thumb_cache:
-            _read_thumb(_THUMB_DIR, name)
-            thumb_loaded += 1
-        if os.path.exists(os.path.join(_THUMB_HQ_DIR, name)) and (_THUMB_HQ_DIR, name) not in _thumb_cache:
-            _read_thumb(_THUMB_HQ_DIR, name)
-            hq_loaded += 1
-    print(f"[warmer] RAM loaded: {thumb_loaded} thumbs, {hq_loaded} HQ thumbs.")
 
     _build_landscape_index()
     _summary_cache["data"] = None
 
-    # ── Phase 2: Generate ALL missing tiers (475 + 800 + 2048) ──
+    # Generate ALL missing tiers (475 + 800 + 2048)
     jobs = []
     for item in items:
         orig = item.get("path", "")
@@ -1403,7 +1356,7 @@ def _warm_all_thumbs(items):
             jobs.append((item, name, need_thumb, need_hq, need_preview))
 
     if not jobs:
-        print(f"[warmer] All {total} photos — every tier on disk and in RAM. Ready to serve.")
+        print(f"[warmer] All {total} photos — every tier on disk. Ready to serve.")
         return
 
     print(f"[warmer] Generating missing tiers for {len(jobs)} photos (16 workers)...")
@@ -1416,17 +1369,11 @@ def _warm_all_thumbs(items):
         ext = os.path.splitext(orig)[1].lower()
         is_video = ext in VIDEO_EXTS
         if need_thumb:
-            out = os.path.join(_THUMB_DIR, name)
-            if gen_thumb(orig, out, 475, 3, is_video):
-                _read_thumb(_THUMB_DIR, name)
+            gen_thumb(orig, os.path.join(_THUMB_DIR, name), 475, 3, is_video)
         if need_hq:
-            out = os.path.join(_THUMB_HQ_DIR, name)
-            if gen_thumb(orig, out, 800, 2, is_video):
-                _read_thumb(_THUMB_HQ_DIR, name)
+            gen_thumb(orig, os.path.join(_THUMB_HQ_DIR, name), 800, 2, is_video)
         if need_preview:
-            out = os.path.join(_THUMB_PREVIEW_DIR, name)
-            gen_thumb(orig, out, 2048, 1, is_video)
-            # Preview stays on disk only — too large for RAM
+            gen_thumb(orig, os.path.join(_THUMB_PREVIEW_DIR, name), 2048, 1, is_video)
 
     done = 0
     with ThreadPoolExecutor(max_workers=16) as pool:
@@ -1435,7 +1382,7 @@ def _warm_all_thumbs(items):
             if done % 500 == 0:
                 print(f"[warmer] {done}/{len(jobs)} photos done (all tiers)")
 
-    print(f"[warmer] Done — {total} photos, all 3 tiers on disk, grid+HQ in RAM. Zero on-demand generation.")
+    print(f"[warmer] Done — {total} photos, all 3 tiers on disk. OS cache handles the rest.")
     _build_landscape_index()
     _summary_cache["data"] = None
 

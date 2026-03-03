@@ -32,6 +32,8 @@
     </script>
     <style>
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
 
         #pg-overlay {
             position: fixed; inset: 0; background: #04070d;
@@ -891,7 +893,6 @@
 
         /* ─── Mobile toolbar ─── */
         @supports (padding: env(safe-area-inset-top)) {
-            #main-header { padding-top: calc(12px + env(safe-area-inset-top)); }
             .lb-footer { padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
         }
 
@@ -904,27 +905,6 @@
         body.lb-open { overflow: hidden !important; overscroll-behavior: none; }
 
         @media (max-width: 640px) {
-            #main-header {
-                flex-wrap: wrap;
-                gap: 8px;
-                padding: 10px 12px;
-                padding-top: calc(10px + env(safe-area-inset-top, 0px));
-            }
-            #main-header > .flex:first-child { width: 100%; }
-            #main-header > .flex:last-child {
-                width: 100%;
-                justify-content: space-between;
-            }
-            #search-wrap { flex: 1; min-width: 0; }
-            #search-input {
-                width: 100% !important;
-                font-size: 16px;
-            }
-            #search-input:focus { width: 100% !important; }
-            .view-tab { padding: 6px 10px !important; }
-            #trash-btn span, #people-btn span, #select-btn span, #upload-btn span { display: none; }
-            #trash-btn, #people-btn, #select-btn, #upload-btn { padding: 6px 10px !important; }
-
             .lb-top, .lb-bottom { padding-left: 16px; padding-right: 16px; }
             .lb-date { font-size: 14px; }
             #lb-people .lb-person { padding: 4px 8px 4px 4px; }
@@ -1181,45 +1161,47 @@
 <div id="pg-overlay"></div>
 
 <!-- Top bar -->
-<header id="main-header" class="px-6 py-4 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
-    <div class="flex items-center gap-5">
-        <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1" title="Home">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+<header id="main-header" class="sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
+    <!-- Row 1: brand + search -->
+    <div class="flex items-center gap-3 px-3 sm:px-4 lg:px-6 pt-3 pb-2 lg:pb-3" style="padding-top: calc(12px + env(safe-area-inset-top, 0px));">
+        <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1 shrink-0" title="Home">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </a>
-        <div class="w-px h-5 bg-border/60 hidden sm:block"></div>
-        <div class="flex items-baseline gap-3">
-            <span class="text-accent-bright font-bold text-[18px] sm:text-[20px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
-            <span class="text-term-dark text-[13px]" id="photo-count"></span>
+        <div class="flex items-baseline gap-2 shrink-0">
+            <span class="text-accent-bright font-bold text-[16px] sm:text-[18px] lg:text-[20px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
+            <span class="text-term-dark text-[11px] sm:text-[13px] hidden sm:inline" id="photo-count"></span>
         </div>
-    </div>
-    <div class="flex items-center gap-3 sm:gap-4">
-        <div class="relative" id="search-wrap">
+        <div class="relative flex-1 min-w-0 max-w-xs ml-auto" id="search-wrap">
             <input id="search-input" type="text" placeholder="Search..."
-                   class="w-32 sm:w-48 md:w-64 bg-bg-tertiary border border-border/70 rounded-lg pl-9 pr-4 py-2 text-[13px] sm:text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
-                   autocomplete="off" spellcheck="false">
-            <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                   class="w-full bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
+                   autocomplete="off" spellcheck="false" style="font-size:16px;">
+            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <div id="search-suggestions" class="hidden"></div>
         </div>
-        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[13px] font-medium shrink-0">
-            <button id="btn-year"  class="view-tab px-4 sm:px-5 py-2 transition-all" onclick="setView('year')">Year</button>
-            <button id="btn-month" class="view-tab px-4 sm:px-5 py-2 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
-            <button id="btn-grid"  class="view-tab px-4 sm:px-5 py-2 transition-all" onclick="setView('grid')">Grid</button>
+    </div>
+    <!-- Row 2: view tabs + actions -->
+    <div class="flex items-center gap-2 px-3 sm:px-4 lg:px-6 pb-2.5 overflow-x-auto no-scrollbar" style="-webkit-overflow-scrolling:touch;">
+        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] sm:text-[13px] font-medium shrink-0">
+            <button id="btn-year"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('year')">Year</button>
+            <button id="btn-month" class="view-tab px-3 sm:px-4 py-1.5 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
+            <button id="btn-grid"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('grid')">Grid</button>
         </div>
-        <button id="people-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-            <span>People</span>
+        <div class="flex-1"></div>
+        <button id="people-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+            <span class="hidden sm:inline">People</span>
         </button>
-        <button id="select-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
-            <span>Select</span>
+        <button id="select-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
+            <span class="hidden sm:inline">Select</span>
         </button>
-        <button id="trash-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-            <span>Trash</span>
+        <button id="trash-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+            <span class="hidden sm:inline">Trash</span>
         </button>
-        <button id="upload-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span>Upload</span>
+        <button id="upload-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span class="hidden sm:inline">Upload</span>
         </button>
     </div>
 </header>
@@ -1429,7 +1411,8 @@ let allItems = [];
 let lbIndex = -1;
 let lbZoomed = false;
 
-const HEADER_H = document.getElementById('main-header').offsetHeight;
+function getHeaderH() { return document.getElementById('main-header').offsetHeight; }
+const HEADER_H = getHeaderH();
 
 function getGridMetrics() {
     const cols = window.innerWidth >= 1400 ? 7 : window.innerWidth >= 768 ? 5 : 3;

@@ -147,24 +147,6 @@ def _preload_thumb_batch(items):
     pass
 
 
-def _jpeg_to_webp(jpeg_data):
-    """Convert JPEG bytes to WebP bytes. Returns None on failure."""
-    try:
-        from PIL import Image as _Img
-        import io
-        img = _Img.open(io.BytesIO(jpeg_data))
-        buf = io.BytesIO()
-        img.save(buf, "WEBP", quality=75, method=4)
-        return buf.getvalue()
-    except Exception:
-        return None
-
-
-# RAM cache for WebP conversions (keyed by (directory, name))
-_webp_cache = {}
-_webp_cache_lock = threading.Lock()
-
-
 @app.before_request
 def _serve_thumb_on_demand():
     """Intercept thumbnail requests. Serve from RAM, disk, or generate on demand."""
@@ -185,26 +167,11 @@ def _serve_thumb_on_demand():
         abort(401)
 
     name = secure_filename(path.rsplit("/", 1)[-1])
-    want_webp = "image/webp" in request.headers.get("Accept", "")
 
     # 1. RAM cache hit (skip RAM cache for large previews to save memory)
     if tier != "preview":
         data = _read_thumb(directory, name)
         if data is not None:
-            # Serve WebP for smaller file size when browser supports it
-            if want_webp and tier == "thumb":
-                wkey = (directory, name)
-                wdata = _webp_cache.get(wkey)
-                if wdata is None:
-                    wdata = _jpeg_to_webp(data)
-                    if wdata:
-                        with _webp_cache_lock:
-                            _webp_cache[wkey] = wdata
-                if wdata:
-                    return Response(wdata, mimetype="image/webp", headers={
-                        "Cache-Control": "public, max-age=604800, immutable",
-                        "Vary": "Accept",
-                    })
             return Response(data, mimetype="image/jpeg", headers={
                 "Cache-Control": "public, max-age=604800, immutable",
             })
@@ -669,19 +636,19 @@ def photos_page():
                 "cover": item.get("thumb", ""),
             }
         groups[month_key]["count"] += 1
-    # Inline the first 3 months of items so they render without an API call
+    # Inline ALL months so the grid renders instantly — no API calls needed
     by_month = load_month_index()
     group_keys = list(groups.keys())
     if exclude:
-        inline_items = {key: [i for i in by_month.get(key, []) if i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") not in exclude] for key in group_keys[:3]}
+        inline_items = {key: [i for i in by_month.get(key, []) if i.get("thumb", "").rsplit("/", 1)[-1].replace(".jpg", "") not in exclude] for key in group_keys}
     else:
-        inline_items = {key: by_month.get(key, []) for key in group_keys[:3]}
+        inline_items = {key: by_month.get(key, []) for key in group_keys}
     photo_data_json = json.dumps({
         "groups": list(groups.values()),
         "total": len(items),
         "inline": inline_items,
     })
-    first_thumbs = [item["thumb"] for item in items[:30] if item.get("thumb")]
+    first_thumbs = [item["thumb"] for item in items[:60] if item.get("thumb")]
     resp = make_response(render_template("photos.html",
         photo_data_json=photo_data_json,
         first_thumbs=first_thumbs,
@@ -1404,6 +1371,20 @@ def _warm_all_thumbs(items):
     if existing_loaded:
         print(f"[warmer] Loaded {existing_loaded} existing thumbs into RAM.")
 
+    # Also warm HQ thumbs into RAM so lightbox opens instantly
+    hq_loaded = 0
+    for item in items:
+        url = item.get("thumb", "")
+        if not url:
+            continue
+        name = url.rsplit("/", 1)[-1]
+        hq_path = os.path.join(_THUMB_HQ_DIR, name)
+        if os.path.exists(hq_path) and (_THUMB_HQ_DIR, name) not in _thumb_cache:
+            _read_thumb(_THUMB_HQ_DIR, name)
+            hq_loaded += 1
+    if hq_loaded:
+        print(f"[warmer] Loaded {hq_loaded} HQ thumbs into RAM.")
+
     _build_landscape_index()
     _summary_cache["data"] = None  # force covers to use landscape data
 
@@ -1434,9 +1415,15 @@ def _warm_all_thumbs(items):
         is_video = ext in VIDEO_EXTS
         url = item["thumb"]
         name = url.rsplit("/", 1)[-1]
+        # Generate both grid thumb and HQ thumb so lightbox is instant
         out = os.path.join(_THUMB_DIR, name)
-        if gen_thumb(orig, out, 475, 3, is_video):
-            _read_thumb(_THUMB_DIR, name)  # immediately cache in RAM
+        if not os.path.exists(out):
+            if gen_thumb(orig, out, 475, 3, is_video):
+                _read_thumb(_THUMB_DIR, name)
+        out_hq = os.path.join(_THUMB_HQ_DIR, name)
+        if not os.path.exists(out_hq):
+            if gen_thumb(orig, out_hq, 800, 2, is_video):
+                _read_thumb(_THUMB_HQ_DIR, name)
 
     done = 0
     with ThreadPoolExecutor(max_workers=8) as pool:

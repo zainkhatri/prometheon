@@ -171,7 +171,8 @@ def gen_thumb(filepath, out_path, size, quality, is_video):
         img = ImageOps.exif_transpose(img)
         img.thumbnail((size, size * 4), Image.LANCZOS)
         os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        img.convert("RGB").save(out_path, "JPEG", quality=85, optimize=True)
+        q = 72 if size <= 475 else 85
+        img.convert("RGB").save(out_path, "JPEG", quality=q, optimize=True)
         return os.path.exists(out_path)
     except Exception:
         return False

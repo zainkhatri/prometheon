@@ -147,6 +147,24 @@ def _preload_thumb_batch(items):
     pass
 
 
+def _jpeg_to_webp(jpeg_data):
+    """Convert JPEG bytes to WebP bytes. Returns None on failure."""
+    try:
+        from PIL import Image as _Img
+        import io
+        img = _Img.open(io.BytesIO(jpeg_data))
+        buf = io.BytesIO()
+        img.save(buf, "WEBP", quality=75, method=4)
+        return buf.getvalue()
+    except Exception:
+        return None
+
+
+# RAM cache for WebP conversions (keyed by (directory, name))
+_webp_cache = {}
+_webp_cache_lock = threading.Lock()
+
+
 @app.before_request
 def _serve_thumb_on_demand():
     """Intercept thumbnail requests. Serve from RAM, disk, or generate on demand."""
@@ -167,11 +185,26 @@ def _serve_thumb_on_demand():
         abort(401)
 
     name = secure_filename(path.rsplit("/", 1)[-1])
+    want_webp = "image/webp" in request.headers.get("Accept", "")
 
     # 1. RAM cache hit (skip RAM cache for large previews to save memory)
     if tier != "preview":
         data = _read_thumb(directory, name)
         if data is not None:
+            # Serve WebP for smaller file size when browser supports it
+            if want_webp and tier == "thumb":
+                wkey = (directory, name)
+                wdata = _webp_cache.get(wkey)
+                if wdata is None:
+                    wdata = _jpeg_to_webp(data)
+                    if wdata:
+                        with _webp_cache_lock:
+                            _webp_cache[wkey] = wdata
+                if wdata:
+                    return Response(wdata, mimetype="image/webp", headers={
+                        "Cache-Control": "public, max-age=604800, immutable",
+                        "Vary": "Accept",
+                    })
             return Response(data, mimetype="image/jpeg", headers={
                 "Cache-Control": "public, max-age=604800, immutable",
             })

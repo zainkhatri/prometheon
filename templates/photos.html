@@ -9,7 +9,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#04070d">
-    {% for thumb in first_thumbs %}<link rel="preload" href="{{ thumb }}" as="image" fetchpriority="high">
+    {% for thumb in first_thumbs[:6] %}<link rel="preload" href="{{ thumb }}" as="image" fetchpriority="high">
     {% endfor %}<script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
     <script>
@@ -1715,7 +1715,7 @@ const sectionObserver = new IntersectionObserver((entries) => {
     for (const entry of entries) {
         if (entry.isIntersecting) { loadSection(entry.target); sectionObserver.unobserve(entry.target); }
     }
-}, { rootMargin: '300px' });
+}, { rootMargin: ('ontouchstart' in window) ? '100px' : '300px' });
 
 async function loadSection(section) {
     if (section.dataset.loaded === 'done' || section.dataset.loaded === 'loading') return;
@@ -1836,7 +1836,7 @@ function showLbItem(idx) {
     } else {
         const img = document.createElement('img');
         img.style.cssText = 'position:relative;z-index:1';
-        // Three-tier loading: HQ thumb (instant) → 2048px preview → full original on zoom
+        const _isMobile = 'ontouchstart' in window;
         const thumbHash = (item.thumb || '').split('/').pop();
         const previewUrl = thumbHash ? ('/static/thumbs_preview/' + thumbHash) : '';
         const fullUrl = item.path ? ('/media' + encodeURI(item.path)) : '';
@@ -1844,26 +1844,29 @@ function showLbItem(idx) {
         img.src = item.thumb_hq || item.thumb || '';
         img.onload = function onHqLoad() {
             loading.remove(); bgWrap.style.display = 'none';
-            // Stage 2: load 2048px preview in background, swap when ready
-            if (previewUrl) {
-                const preview = new Image();
-                preview.onload = () => {
-                    if (img.parentNode) img.src = previewUrl;
-                    // Stage 3: preload full original, swap on zoom/tap or when ready
-                    if (fullUrl) {
-                        const full = new Image();
-                        full.onload = () => { img.dataset.fullSrc = fullUrl; };
-                        full.src = fullUrl;
-                    }
-                };
-                preview.src = previewUrl;
-            } else if (fullUrl) {
-                // No preview tier available — load full directly
-                const full = new Image();
-                full.onload = () => { if (img.parentNode) img.src = fullUrl; };
-                full.src = fullUrl;
+            if (_isMobile) {
+                // Mobile: HQ (800px) is final display tier. Only load full on zoom.
+                if (fullUrl) img.dataset.fullSrc = fullUrl;
+            } else {
+                // Desktop: load 2048px preview, then preload full
+                if (previewUrl) {
+                    const preview = new Image();
+                    preview.onload = () => {
+                        if (img.parentNode) img.src = previewUrl;
+                        if (fullUrl) {
+                            const full = new Image();
+                            full.onload = () => { img.dataset.fullSrc = fullUrl; };
+                            full.src = fullUrl;
+                        }
+                    };
+                    preview.src = previewUrl;
+                } else if (fullUrl) {
+                    const full = new Image();
+                    full.onload = () => { if (img.parentNode) img.src = fullUrl; };
+                    full.src = fullUrl;
+                }
             }
-            img.onload = null;  // clear handler so stage 2/3 swaps don't re-trigger
+            img.onload = null;
         };
         img.onerror = () => { loading.textContent = 'Failed to load'; };
         // Double-tap or pinch to swap to full original immediately
@@ -3523,6 +3526,8 @@ document.getElementById('btn-grid').classList.add('active');
 // ─── Service Worker — register and trigger full thumbnail precache ───
 if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('/sw.js').then(reg => {
+        // Only bulk-precache on desktop — on mobile it competes with visible content
+        if ('ontouchstart' in window) return;
         function triggerPrecache(sw) {
             sw.postMessage({ type: 'PRECACHE_BUNDLE', expectedCount: photoData.total || 0 });
         }

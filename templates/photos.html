@@ -129,9 +129,22 @@
             cursor: none;
             display: none;
             touch-action: none;
+            opacity: 0;
+            transition: opacity 150ms ease-out;
         }
         #lightbox.active { display: block; }
+        #lightbox.lb-visible { opacity: 1; }
         #lightbox.lb-ui-visible { cursor: default; }
+
+        /* Image slide transitions */
+        .lb-slide-left  { transform: translateX(-100%); opacity: 0; transition: transform 200ms ease-out, opacity 200ms ease-out; }
+        .lb-slide-right { transform: translateX(100%);  opacity: 0; transition: transform 200ms ease-out, opacity 200ms ease-out; }
+
+        /* Modal animations */
+        .modal-animate { opacity: 0; transition: opacity 150ms ease-out; }
+        .modal-animate.modal-visible { opacity: 1; }
+        .modal-animate .modal-card { transform: scale(0.95); opacity: 0; transition: transform 150ms ease-out, opacity 150ms ease-out; }
+        .modal-animate.modal-visible .modal-card { transform: scale(1); opacity: 1; }
 
         /* Overlay UI — fades in/out */
         .lb-overlay {
@@ -621,8 +634,11 @@
             inset: 0;
             z-index: 900;
             background: #04070d;
+            transform: translateX(100%);
+            transition: transform 200ms ease-out;
         }
         #trash-panel.active { display: flex; flex-direction: column; }
+        #trash-panel.panel-visible { transform: translateX(0); }
 
         .trash-item {
             display: flex;
@@ -662,8 +678,11 @@
             display: none; position: fixed; inset: 0;
             z-index: 900; background: #04070d; flex-direction: column;
             overflow-y: auto;
+            transform: translateX(100%);
+            transition: transform 200ms ease-out;
         }
         #people-panel.active { display: flex; }
+        #people-panel.panel-visible { transform: translateX(0); }
 
         .person-grid {
             display: grid;
@@ -706,8 +725,11 @@
             padding: 12px 16px; display: none;
             align-items: center; justify-content: space-between; gap: 10px;
             padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            transform: translateY(100%);
+            transition: transform 150ms ease-out;
         }
         #select-bar.active { display: flex; }
+        #select-bar.bar-visible { transform: translateY(0); }
         .sel-count {
             font-family: 'Rajdhani', sans-serif;
             font-size: 13px; font-weight: 700;
@@ -772,8 +794,11 @@
             padding: 12px 16px; display: none;
             align-items: center; justify-content: space-between; gap: 10px;
             padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+            transform: translateY(100%);
+            transition: transform 150ms ease-out;
         }
         #person-select-bar.active { display: flex; }
+        #person-select-bar.bar-visible { transform: translateY(0); }
         .ps-btn {
             padding: 7px 16px;
             font-family: 'Rajdhani', sans-serif;
@@ -793,7 +818,6 @@
 
         /* Move-to modal */
         #move-to-modal { display: none; }
-        #move-to-modal.active { display: flex; }
         .move-to-list {
             max-height: 50vh; overflow-y: auto;
             display: flex; flex-direction: column; gap: 4px;
@@ -1022,8 +1046,13 @@
             backdrop-filter: blur(6px);
             justify-content: center;
             align-items: center;
+            opacity: 0;
+            transition: opacity 150ms ease-out;
         }
         #upload-modal.active { display: flex; }
+        #upload-modal.modal-visible { opacity: 1; }
+        #upload-modal .upload-panel { transform: scale(0.95); opacity: 0; transition: transform 150ms ease-out, opacity 150ms ease-out; }
+        #upload-modal.modal-visible .upload-panel { transform: scale(1); opacity: 1; }
         .upload-panel {
             background: var(--bg-panel, #0a0f1a);
             border: 1px solid var(--border, #1a2a3a);
@@ -1292,8 +1321,8 @@
 </div>
 
 <!-- Move-to person modal -->
-<div id="move-to-modal" class="fixed inset-0 z-[1100] items-center justify-center" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
-    <div class="bg-bg-panel border border-border rounded-xl p-6 max-w-sm w-full mx-4 font-mono shadow-2xl">
+<div id="move-to-modal" class="modal-animate fixed inset-0 z-[1100] items-center justify-center" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
+    <div class="modal-card bg-bg-panel border border-border rounded-xl p-6 max-w-sm w-full mx-4 font-mono shadow-2xl">
         <p class="text-term-white text-sm font-medium mb-1">Move to person</p>
         <p class="text-term-gray text-[11px] mb-4" id="move-to-sub"></p>
         <div class="move-to-list" id="move-to-list"></div>
@@ -1302,8 +1331,8 @@
 </div>
 
 <!-- Name person modal -->
-<div id="name-person-modal" class="hidden fixed inset-0 z-[1100] flex items-center justify-center" style="background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
-    <div class="bg-bg-panel border border-border rounded-xl p-7 max-w-sm w-full mx-4 font-mono shadow-2xl">
+<div id="name-person-modal" class="modal-animate fixed inset-0 z-[1100] flex items-center justify-center" style="display:none;background:rgba(0,0,0,0.8);backdrop-filter:blur(4px)">
+    <div class="modal-card bg-bg-panel border border-border rounded-xl p-7 max-w-sm w-full mx-4 font-mono shadow-2xl">
         <p class="text-term-white text-sm font-medium mb-1">Name this person</p>
         <p class="text-term-gray text-[11px] mb-5" id="name-modal-sub"></p>
         <input id="name-person-input" type="text" placeholder="Enter name…"
@@ -1317,8 +1346,8 @@
 </div>
 
 <!-- Delete confirmation modal -->
-<div id="delete-modal" class="hidden fixed inset-0 z-[1100] flex items-center justify-center" style="background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);">
-    <div class="bg-bg-panel border border-border rounded-xl p-7 max-w-sm mx-4 font-mono shadow-2xl">
+<div id="delete-modal" class="modal-animate fixed inset-0 z-[1100] flex items-center justify-center" style="display:none;background: rgba(0,0,0,0.75); backdrop-filter: blur(4px);">
+    <div class="modal-card bg-bg-panel border border-border rounded-xl p-7 max-w-sm mx-4 font-mono shadow-2xl">
         <p class="text-term-white text-sm font-medium mb-1.5">Move to recycling bin?</p>
         <p class="text-term-gray text-xs mb-5 leading-relaxed">Auto-deletes after 30 days. Recoverable until then.</p>
         <div class="flex gap-3 justify-end">
@@ -1778,23 +1807,37 @@ function openLightbox(idx, customItems) {
     lbZoomed = false;
     _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
     lightbox.classList.add('active');
+    lightbox.offsetHeight; // force reflow
+    lightbox.classList.add('lb-visible');
     document.body.classList.add('lb-open');
     showLbItem(idx);
     _lbShowUi();
 }
 
 function closeLightbox() {
-    lightbox.classList.remove('active', 'lb-ui-visible');
+    lightbox.classList.remove('lb-visible', 'lb-ui-visible');
     clearTimeout(_lbUiTimer);
     lbMediaWrap.style.transform = '';
     lbMediaWrap.style.transition = '';
+    lbMediaWrap.style.opacity = '';
     lightbox.style.background = '';
-    lbMediaWrap.innerHTML = '';
+    lightbox.style.transition = '';
     document.body.classList.remove('lb-open');
     lbIndex = -1;
     lbZoomed = false;
     _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
     _lbItems = null;
+    _lbAnimating = false;
+    const onEnd = () => {
+        lightbox.removeEventListener('transitionend', onEnd);
+        if (!lightbox.classList.contains('lb-visible')) {
+            lightbox.classList.remove('active');
+            lbMediaWrap.innerHTML = '';
+        }
+    };
+    lightbox.addEventListener('transitionend', onEnd);
+    // Fallback in case transitionend doesn't fire
+    setTimeout(onEnd, 200);
 }
 
 function showLbItem(idx) {
@@ -1905,7 +1948,7 @@ function showLbItem(idx) {
                         el.addEventListener('click', (e) => {
                             e.stopPropagation();
                             closeLightbox();
-                            document.getElementById('people-panel').classList.add('active');
+                            showPanel(document.getElementById('people-panel'));
                             openPersonDetail({ id: p.cluster_id, name: p.name, photo_count: 0, sample_face: p.sample_face });
                         });
                         lbPeople.appendChild(el);
@@ -1934,6 +1977,35 @@ function _lbPreloadAdjacent(idx) {
 }
 const _lbPreloadCache = new Set();
 
+// ─── Slide navigation with animation ───
+let _lbAnimating = false;
+function _lbNavigate(newIdx) {
+    const items = _getLbItems();
+    if (_lbAnimating || newIdx < 0 || newIdx >= items.length || newIdx === lbIndex) return;
+    _lbAnimating = true;
+    const goingRight = newIdx > lbIndex;
+    // Slide current content out
+    lbMediaWrap.style.transition = 'transform 200ms ease-out, opacity 200ms ease-out';
+    lbMediaWrap.style.transform = goingRight ? 'translateX(-100%)' : 'translateX(100%)';
+    lbMediaWrap.style.opacity = '0';
+    setTimeout(() => {
+        // Swap content instantly off-screen
+        lbMediaWrap.style.transition = 'none';
+        lbMediaWrap.style.transform = goingRight ? 'translateX(100%)' : 'translateX(-100%)';
+        lbMediaWrap.style.opacity = '0';
+        showLbItem(newIdx);
+        lbMediaWrap.offsetHeight; // reflow
+        // Slide new content in
+        lbMediaWrap.style.transition = 'transform 200ms ease-out, opacity 200ms ease-out';
+        lbMediaWrap.style.transform = '';
+        lbMediaWrap.style.opacity = '';
+        setTimeout(() => {
+            _lbAnimating = false;
+            lbMediaWrap.style.transition = '';
+        }, 210);
+    }, 210);
+}
+
 document.getElementById('lb-close').addEventListener('click', closeLightbox);
 lightbox.addEventListener('mousemove', _lbShowUi);
 // Mouse-only click handler — touch uses gesture system + double-tap timer
@@ -1953,8 +2025,8 @@ lightbox.addEventListener('click', (e) => {
     }
     closeLightbox();
 });
-document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex > 0) showLbItem(lbIndex - 1); });
-document.getElementById('lb-next').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex < _getLbItems().length - 1) showLbItem(lbIndex + 1); });
+document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); _lbNavigate(lbIndex - 1); });
+document.getElementById('lb-next').addEventListener('click', (e) => { e.stopPropagation(); _lbNavigate(lbIndex + 1); });
 document.getElementById('lb-rotate').addEventListener('click', async () => {
     const items = _getLbItems();
     if (lbIndex < 0 || lbIndex >= items.length) return;
@@ -2004,8 +2076,8 @@ document.getElementById('lb-download').addEventListener('click', () => {
 document.addEventListener('keydown', (e) => {
     if (!lightbox.classList.contains('active')) return;
     if (e.key === 'Escape') { closeLightbox(); return; }
-    if (e.key === 'ArrowLeft' && lbIndex > 0) showLbItem(lbIndex - 1);
-    if (e.key === 'ArrowRight' && lbIndex < _getLbItems().length - 1) showLbItem(lbIndex + 1);
+    if (e.key === 'ArrowLeft') _lbNavigate(lbIndex - 1);
+    if (e.key === 'ArrowRight') _lbNavigate(lbIndex + 1);
 });
 
 // ─── Lightbox gesture system ───
@@ -2053,8 +2125,9 @@ function _lbApplyZoom(animate) {
 }
 
 function _lbResetDrag() {
-    lbMediaWrap.style.transition = 'transform 0.2s ease-out';
+    lbMediaWrap.style.transition = 'transform 0.2s ease-out, opacity 0.2s ease-out';
     lbMediaWrap.style.transform = '';
+    lbMediaWrap.style.opacity = '';
     lightbox.style.transition = 'background 0.2s ease-out';
     lightbox.style.background = '';
     setTimeout(() => {
@@ -2125,8 +2198,8 @@ lightbox.addEventListener('touchend', (e) => {
     if (g.dir === 'h') {
         const thresh = vel > 0.3 ? 20 : 80;
         const items = _getLbItems();
-        if (dx < -thresh && lbIndex < items.length - 1) { lbMediaWrap.style.transition = ''; lbMediaWrap.style.transform = ''; showLbItem(lbIndex + 1); }
-        else if (dx > thresh && lbIndex > 0) { lbMediaWrap.style.transition = ''; lbMediaWrap.style.transform = ''; showLbItem(lbIndex - 1); }
+        if (dx < -thresh && lbIndex < items.length - 1) { lbMediaWrap.style.transition = ''; lbMediaWrap.style.transform = ''; lbMediaWrap.style.opacity = ''; _lbNavigate(lbIndex + 1); }
+        else if (dx > thresh && lbIndex > 0) { lbMediaWrap.style.transition = ''; lbMediaWrap.style.transform = ''; lbMediaWrap.style.opacity = ''; _lbNavigate(lbIndex - 1); }
         else _lbResetDrag();
     } else if (g.dir === 'v' && dy > 0) {
         if (dy > (vel > 0.3 ? 30 : 100)) closeLightbox();
@@ -2197,21 +2270,66 @@ lightbox.addEventListener('touchend', (e) => {
     }
 }, { passive: true });
 
+// ─── Animation helpers ───
+function showModal(el) {
+    el.style.display = 'flex';
+    el.classList.remove('hidden');
+    el.offsetHeight; // reflow
+    el.classList.add('modal-visible');
+}
+function hideModal(el) {
+    el.classList.remove('modal-visible');
+    const onEnd = () => {
+        el.removeEventListener('transitionend', onEnd);
+        if (!el.classList.contains('modal-visible')) { el.style.display = 'none'; }
+    };
+    el.addEventListener('transitionend', onEnd);
+    setTimeout(onEnd, 200);
+}
+function showPanel(el) {
+    el.classList.add('active');
+    el.offsetHeight; // reflow
+    el.classList.add('panel-visible');
+}
+function hidePanel(el) {
+    el.classList.remove('panel-visible');
+    const onEnd = () => {
+        el.removeEventListener('transitionend', onEnd);
+        if (!el.classList.contains('panel-visible')) { el.classList.remove('active'); }
+    };
+    el.addEventListener('transitionend', onEnd);
+    setTimeout(onEnd, 250);
+}
+function showBar(el) {
+    el.classList.add('active');
+    el.offsetHeight; // reflow
+    el.classList.add('bar-visible');
+}
+function hideBar(el) {
+    el.classList.remove('bar-visible');
+    const onEnd = () => {
+        el.removeEventListener('transitionend', onEnd);
+        if (!el.classList.contains('bar-visible')) { el.classList.remove('active'); }
+    };
+    el.addEventListener('transitionend', onEnd);
+    setTimeout(onEnd, 200);
+}
+
 // ─── Delete ───
 const deleteModal = document.getElementById('delete-modal');
 let _deleteItem = null, _deleteIdx = -1;
 document.getElementById('lb-delete').addEventListener('click', () => {
     if (lbIndex < 0 || lbIndex >= allItems.length) return;
     _deleteItem = allItems[lbIndex]; _deleteIdx = lbIndex;
-    deleteModal.classList.remove('hidden');
+    showModal(deleteModal);
 });
 document.getElementById('delete-cancel').addEventListener('click', () => {
-    deleteModal.classList.add('hidden'); _deleteItem = null;
+    hideModal(deleteModal); _deleteItem = null;
 });
 document.getElementById('delete-confirm').addEventListener('click', async () => {
     if (!_deleteItem) return;
     const item = _deleteItem, idx = _deleteIdx;
-    deleteModal.classList.add('hidden'); _deleteItem = null;
+    hideModal(deleteModal); _deleteItem = null;
     try {
         const resp = await fetch('/api/photos/delete', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -2409,14 +2527,14 @@ function exitSearch() {
 // ─── Trash panel ───
 document.getElementById('trash-btn').addEventListener('click', openTrashPanel);
 document.getElementById('trash-back').addEventListener('click', () => {
-    document.getElementById('trash-panel').classList.remove('active');
+    hidePanel(document.getElementById('trash-panel'));
     document.body.style.overflow = '';
 });
 
 async function openTrashPanel() {
     const panel = document.getElementById('trash-panel');
     const list = document.getElementById('trash-list');
-    panel.classList.add('active');
+    showPanel(panel);
     document.body.style.overflow = 'hidden';
     list.innerHTML = '<div class="text-term-gray text-[12px] px-5 py-10 text-center">Loading\u2026</div>';
     try {
@@ -2467,7 +2585,7 @@ const selectedHashes = new Set();
 document.getElementById('select-btn').addEventListener('click', () => {
     selectMode = true;
     document.body.classList.add('select-mode');
-    document.getElementById('select-bar').classList.add('active');
+    showBar(document.getElementById('select-bar'));
     document.getElementById('sel-count').textContent = '0 selected';
     document.getElementById('sel-name-btn').disabled = true;
     document.getElementById('sel-download-btn').disabled = true;
@@ -2479,7 +2597,7 @@ function exitSelectMode() {
     selectMode = false;
     selectedHashes.clear();
     document.body.classList.remove('select-mode');
-    document.getElementById('select-bar').classList.remove('active');
+    hideBar(document.getElementById('select-bar'));
     document.querySelectorAll('.thumb-container.selected').forEach(el => el.classList.remove('selected'));
 }
 
@@ -2605,13 +2723,13 @@ document.getElementById('sel-name-btn').addEventListener('click', () => {
     document.getElementById('name-person-input').value = '';
     document.getElementById('name-modal-save').textContent = 'Create';
     document.getElementById('name-modal-save').disabled = false;
-    document.getElementById('name-person-modal').classList.remove('hidden');
+    showModal(document.getElementById('name-person-modal'));
     setTimeout(() => document.getElementById('name-person-input').focus(), 50);
 });
 
 // ─── Name person modal ───
 document.getElementById('name-modal-cancel').addEventListener('click', () => {
-    document.getElementById('name-person-modal').classList.add('hidden');
+    hideModal(document.getElementById('name-person-modal'));
 });
 
 document.getElementById('name-modal-save').addEventListener('click', async () => {
@@ -2626,7 +2744,7 @@ document.getElementById('name-modal-save').addEventListener('click', async () =>
         });
         const data = await resp.json();
         if (data.error) throw new Error(data.error);
-        document.getElementById('name-person-modal').classList.add('hidden');
+        hideModal(document.getElementById('name-person-modal'));
         exitSelectMode();
         openPeoplePanel();
     } catch(e) {
@@ -2644,13 +2762,13 @@ document.getElementById('name-person-input').addEventListener('keydown', (e) => 
 document.getElementById('people-btn').addEventListener('click', openPeoplePanel);
 document.getElementById('people-back').addEventListener('click', () => {
     if (document.getElementById('people-title').textContent !== 'PEOPLE') openPeoplePanel();
-    else { document.getElementById('people-panel').classList.remove('active'); document.body.style.overflow = ''; }
+    else { hidePanel(document.getElementById('people-panel')); document.body.style.overflow = ''; }
 });
 
 async function openPeoplePanel() {
     const panel = document.getElementById('people-panel');
     const content = document.getElementById('people-content');
-    panel.classList.add('active');
+    showPanel(panel);
     document.body.style.overflow = 'hidden';
     document.getElementById('people-title').textContent = 'PEOPLE';
     document.getElementById('people-subtitle').textContent = '';
@@ -2948,7 +3066,7 @@ function exitPersonSelectMode() {
     _personSelectMode = false;
     _pfpSelectMode = false;
     _personSelectedHashes.clear();
-    document.getElementById('person-select-bar').classList.remove('active');
+    hideBar(document.getElementById('person-select-bar'));
     document.querySelectorAll('#people-content .thumb-container.selected').forEach(el => el.classList.remove('selected'));
 }
 
@@ -3008,7 +3126,7 @@ function _showPhotoMenu(e, hash, photoIdx, container) {
             _personSelectMode = true;
             _personSelectedHashes.add(hash);
             container.classList.add('selected');
-            document.getElementById('person-select-bar').classList.add('active');
+            showBar(document.getElementById('person-select-bar'));
             updatePersonSelCount();
         }},
     ];
@@ -3065,7 +3183,7 @@ function _showGridMenu(e, hash, photoIdx, container) {
             _closePhotoMenu();
             selectMode = true;
             document.body.classList.add('select-mode');
-            document.getElementById('select-bar').classList.add('active');
+            showBar(document.getElementById('select-bar'));
             selectedHashes.add(hash);
             container.classList.add('selected');
             updateSelCount();
@@ -3151,21 +3269,21 @@ document.getElementById('ps-move-btn').addEventListener('click', async () => {
                     });
                     if (r.ok) moved++;
                 }
-                document.getElementById('move-to-modal').classList.remove('active');
+                hideModal(document.getElementById('move-to-modal'));
                 exitPersonSelectMode();
                 _currentPersonCluster.photo_count -= moved;
                 openPersonDetail(_currentPersonCluster);
             });
             list.appendChild(btn);
         }
-        document.getElementById('move-to-modal').classList.add('active');
+        showModal(document.getElementById('move-to-modal'));
     } catch(e) {
         alert('Failed to load people list.');
     }
 });
 
 document.getElementById('move-to-cancel').addEventListener('click', () => {
-    document.getElementById('move-to-modal').classList.remove('active');
+    hideModal(document.getElementById('move-to-modal'));
 });
 
 async function openPersonDetail(cluster) {
@@ -3345,16 +3463,24 @@ async function downloadSinglePhoto(path) {
 
     document.getElementById('upload-btn').addEventListener('click', () => {
         modal.classList.add('active');
+        modal.offsetHeight;
+        modal.classList.add('modal-visible');
     });
 
-    document.getElementById('upload-close').addEventListener('click', closeModal);
-    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+    document.getElementById('upload-close').addEventListener('click', closeUploadModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeUploadModal(); });
 
-    function closeModal() {
+    function closeUploadModal() {
         if (uploading) {
             if (!confirm('Upload in progress. Close anyway?')) return;
         }
-        modal.classList.remove('active');
+        modal.classList.remove('modal-visible');
+        const onEnd = () => {
+            modal.removeEventListener('transitionend', onEnd);
+            if (!modal.classList.contains('modal-visible')) modal.classList.remove('active');
+        };
+        modal.addEventListener('transitionend', onEnd);
+        setTimeout(onEnd, 200);
         if (anySuccess) {
             window.location.reload();
         }

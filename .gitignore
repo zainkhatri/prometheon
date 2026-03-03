@@ -13,6 +13,7 @@ __pycache__/
 ai_data/
 *.log
 photo_index.json
+content_hashes.json
 .folder_sizes.json
 .disk_stats.json
 .nas_drives.json
@@ -37,6 +38,7 @@ nginx-prometheon.conf
 # Generated thumbnail caches
 static/thumbs/
 static/thumbs_hq/
+static/thumbs_preview/
 static/faces/
 static/face_avatars/
 

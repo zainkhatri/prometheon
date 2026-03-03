@@ -201,7 +201,7 @@ def scan_faces(photos, rescan=False):
 
     print("[faces] Loading InsightFace buffalo_l model…")
     app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-    app.prepare(ctx_id=0, det_size=(640, 640))
+    app.prepare(ctx_id=0, det_size=(960, 960))
 
     print(f"[faces] Scanning {len(todo)} images")
     print(f"[faces] {len(existing)} cached, {len(todo)} to process\n")
@@ -238,7 +238,8 @@ def scan_faces(photos, rescan=False):
                 emb_idx = len(all_embs)
                 all_embs.append(face.normed_embedding.astype(np.float32))
                 # Store bbox as [top, right, bottom, left] to match existing format
-                faces.append({"bbox": [y1, x2, y2, x1], "emb_idx": emb_idx})
+                faces.append({"bbox": [y1, x2, y2, x1], "emb_idx": emb_idx,
+                              "det_score": round(float(face.det_score), 3)})
 
                 # Save face crop
                 pad = int(max(x2 - x1, y2 - y1) * 0.35)
@@ -280,6 +281,35 @@ def scan_faces(photos, rescan=False):
     cluster_faces()
 
 
+MIN_DET_SCORE = 0.5  # Minimum detection confidence for centroid/exemplar computation
+
+
+def _build_score_map(face_data):
+    """Build emb_idx → det_score lookup from face_data."""
+    score_map = {}
+    for ph, faces in face_data.items():
+        for f in faces:
+            score_map[f["emb_idx"]] = f.get("det_score", 1.0)  # default 1.0 for legacy
+    return score_map
+
+
+def _pick_exemplars(embs_subset, k=5):
+    """Select up to k diverse exemplar embeddings using greedy max-min diversity."""
+    if len(embs_subset) <= k:
+        return embs_subset
+    centroid = embs_subset.mean(axis=0)
+    dists = np.linalg.norm(embs_subset - centroid, axis=1)
+    picked = [int(np.argmin(dists))]  # start with closest to centroid
+    for _ in range(k - 1):
+        min_dists = np.min(
+            [np.linalg.norm(embs_subset - embs_subset[p], axis=1) for p in picked],
+            axis=0,
+        )
+        min_dists[picked] = -1  # exclude already picked
+        picked.append(int(np.argmax(min_dists)))
+    return embs_subset[picked]
+
+
 def cluster_faces():
     try:
         from sklearn.cluster import AgglomerativeClustering
@@ -294,14 +324,15 @@ def cluster_faces():
     embs = np.load(FACE_EMB_FILE)
     with open(FACE_INDEX_FILE) as f:
         face_data = json.load(f)
+    score_map = _build_score_map(face_data)
 
     if len(embs) == 0:
         print("[faces] No face embeddings found.")
         return
 
-    INITIAL_THRESH = 0.7  # ArcFace 512-dim normalized embeddings (was 0.42 for dlib 128-dim)
-    MIN_FACES = 2
-    MIN_PHOTOS = 5
+    INITIAL_THRESH = 0.9  # Higher = merges more aggressively
+    MIN_FACES = 3
+    MIN_PHOTOS = 8
 
     # Load existing clusters — named+curated ones become locked anchors
     old_clusters = {}
@@ -422,19 +453,51 @@ def cluster_faces():
         return emb_to_hash.get(best_emb_idx, "")
 
     clusters = {}
-    cid = 0
+    used_ids = set()
 
-    # Add locked anchors first (preserved exactly as curated, sorted by photo count)
-    for oc in sorted(locked.values(), key=lambda c: c["photo_count"], reverse=True):
+    # Add locked anchors first — preserve their ORIGINAL cluster IDs
+    for orig_cid, oc in locked.items():
         excluded = set(oc.get("excluded_hashes", []))
         photo_hashes = [ph for ph in oc["photo_hashes"] if ph not in excluded]
         if not photo_hashes:
             continue
-        c_emb_indices = np.array([idx for idx, ph in emb_to_hash.items()
-                                  if ph in photo_hashes and idx < len(embs)])
-        if len(c_emb_indices) == 0:
+        photo_set = set(photo_hashes)
+        all_emb_indices = np.array([idx for idx, ph in emb_to_hash.items()
+                                    if ph in photo_set and idx < len(embs)])
+        if len(all_emb_indices) == 0:
             continue
-        centroid = embs[c_emb_indices].mean(axis=0)
+
+        # If stored emb_indices exist from a previous run, use them as the
+        # authoritative set; otherwise refine from all faces in cluster photos.
+        stored_indices = oc.get("emb_indices")
+        if stored_indices:
+            valid = [i for i in stored_indices if i < len(embs)]
+            if valid:
+                c_emb_indices = np.array(valid)
+            else:
+                c_emb_indices = all_emb_indices
+        else:
+            # Iterative refinement: compute rough centroid from all faces,
+            # then keep only the closest face per photo to filter out bystanders.
+            rough_centroid = embs[all_emb_indices].mean(axis=0)
+            refined = []
+            for ph in photo_hashes:
+                ph_indices = [idx for idx in all_emb_indices if emb_to_hash.get(int(idx)) == ph]
+                if len(ph_indices) == 1:
+                    refined.append(ph_indices[0])
+                elif len(ph_indices) > 1:
+                    dists = [(idx, np.linalg.norm(embs[idx] - rough_centroid)) for idx in ph_indices]
+                    refined.append(min(dists, key=lambda x: x[1])[0])
+            c_emb_indices = np.array(refined) if refined else all_emb_indices
+
+        # Quality-gate: only high-confidence faces influence centroid/exemplars
+        hq_indices = np.array([i for i in c_emb_indices
+                               if score_map.get(int(i), 1.0) >= MIN_DET_SCORE])
+        if len(hq_indices) == 0:
+            hq_indices = c_emb_indices  # fallback if all low-quality
+
+        centroid = embs[hq_indices].mean(axis=0)
+        exemplars = _pick_exemplars(embs[hq_indices])
         entry = {
             "name": oc["name"],
             "photo_count": len(photo_hashes),
@@ -442,25 +505,40 @@ def cluster_faces():
             "sample_face": _best_sample(c_emb_indices, centroid),
             "photo_hashes": photo_hashes,
             "excluded_hashes": list(excluded),
+            "emb_indices": [int(i) for i in c_emb_indices],
+            "exemplars": exemplars.tolist(),
         }
         # Preserve user-set fields (avatar, seeds, hidden, etc.)
         for k in ("avatar_hash", "avatar_bbox", "seed_hashes", "hidden"):
             if k in oc:
                 entry[k] = oc[k]
-        clusters[str(cid)] = entry
-        cid += 1
+        clusters[str(orig_cid)] = entry
+        used_ids.add(int(orig_cid))
+
+    # Find next available ID for new clusters (avoid collisions with locked IDs)
+    next_id = max(used_ids, default=-1) + 1
 
     # Add newly clustered people
     for rc in sorted(final_clusters, key=lambda c: len(c["photo_hashes"]), reverse=True):
-        centroid = embs[rc["indices"]].mean(axis=0)
-        clusters[str(cid)] = {
+        while next_id in used_ids:
+            next_id += 1
+        hq_idx = np.array([i for i in rc["indices"]
+                           if score_map.get(int(i), 1.0) >= MIN_DET_SCORE])
+        if len(hq_idx) == 0:
+            hq_idx = rc["indices"]  # fallback
+        centroid = embs[hq_idx].mean(axis=0)
+        exemplars = _pick_exemplars(embs[hq_idx])
+        clusters[str(next_id)] = {
             "name": rc["name"],
             "photo_count": len(rc["photo_hashes"]),
             "face_count": int(len(rc["indices"])),
             "sample_face": _best_sample(rc["indices"], centroid),
             "photo_hashes": rc["photo_hashes"],
+            "emb_indices": [int(i) for i in rc["indices"]],
+            "exemplars": exemplars.tolist(),
         }
-        cid += 1
+        used_ids.add(next_id)
+        next_id += 1
 
     with open(FACE_CLUSTERS_FILE, "w") as f:
         json.dump(clusters, f, indent=2)
@@ -482,6 +560,7 @@ def expand_named_clusters():
         face_data = json.load(f)
     with open(FACE_CLUSTERS_FILE) as f:
         clusters = json.load(f)
+    score_map = _build_score_map(face_data)
 
     named = {cid: c for cid, c in clusters.items() if c.get("name")}
     if not named:
@@ -507,8 +586,8 @@ def expand_named_clusters():
         except Exception:
             pass
 
-    centroid_cids = []
-    centroid_vecs = []
+    exemplar_cids = []
+    exemplar_list = []  # list of (k, emb_dim) arrays — one per cluster
     for cid, c in named.items():
         excluded = set(c.get("excluded_hashes", []))
         ph_set = set(c.get("photo_hashes", [])) - excluded
@@ -516,9 +595,19 @@ def expand_named_clusters():
         name = c.get("name", "")
         cp_set = {ph for ph in ph_set if checkpoint_hashes.get(ph) == name}
 
+        # Prefer stored exemplars (backward compat: fall back to weighted centroid)
+        stored_exemplars = c.get("exemplars")
+        if stored_exemplars and len(stored_exemplars) > 0:
+            exemplar_cids.append(cid)
+            exemplar_list.append(np.array(stored_exemplars, dtype=np.float32))
+            continue
+
+        # Legacy path: compute weighted centroid, wrap as single exemplar
         weighted_embs = []
         for idx, ph in emb_to_hash.items():
             if ph in ph_set and idx < len(embs):
+                if score_map.get(idx, 1.0) < MIN_DET_SCORE:
+                    continue
                 if ph in seed_set:
                     w = 3.0
                 elif ph in cp_set:
@@ -527,35 +616,36 @@ def expand_named_clusters():
                     w = 1.0
                 weighted_embs.append((embs[idx], w))
         if weighted_embs:
-            centroid_cids.append(cid)
+            exemplar_cids.append(cid)
             vecs = np.array([e for e, w in weighted_embs])
             weights = np.array([w for e, w in weighted_embs])
             centroid = np.average(vecs, axis=0, weights=weights)
-            centroid_vecs.append(centroid)
+            exemplar_list.append(centroid.reshape(1, -1))
 
-    if not centroid_vecs:
-        print("[expand] Could not compute any centroids.")
+    if not exemplar_list:
+        print("[expand] Could not compute any exemplars.")
         return
 
-    centroid_mat = np.array(centroid_vecs)
-    print(f"[expand] {len(centroid_cids)} named people, sweeping {len(emb_to_hash)} face embeddings...")
+    print(f"[expand] {len(exemplar_cids)} named people, sweeping {len(emb_to_hash)} face embeddings...")
 
     # Confident match with clear margin
-    ASSIGN_THRESH = 0.95
-    MARGIN = 0.04  # require clear winner
+    ASSIGN_THRESH = 1.05  # looser distance threshold (was 0.95)
+    MARGIN = 0.02  # smaller margin = accept closer calls (was 0.04)
 
-    new_for_cluster = {cid: set() for cid in centroid_cids}
+    new_for_cluster = {cid: set() for cid in exemplar_cids}
     skipped_ambiguous = 0
 
     # Per-cluster: track which hashes are already in THAT cluster (not globally)
     cluster_hashes = {cid: set(clusters[cid].get("photo_hashes", []))
-                      for cid in centroid_cids}
+                      for cid in exemplar_cids}
 
     for emb_idx, ph in emb_to_hash.items():
         if emb_idx >= len(embs):
             continue
         emb = embs[emb_idx]
-        dists = np.linalg.norm(centroid_mat - emb, axis=1)
+        # Min-exemplar distance: for each cluster, distance = min dist to any exemplar
+        dists = np.array([float(np.min(np.linalg.norm(ex - emb, axis=1)))
+                          for ex in exemplar_list])
         best_idx = int(np.argmin(dists))
         best_dist = float(dists[best_idx])
         if best_dist >= ASSIGN_THRESH:
@@ -564,7 +654,7 @@ def expand_named_clusters():
         if len(sorted_d) > 1 and (sorted_d[1] - best_dist) < MARGIN:
             skipped_ambiguous += 1
             continue
-        best_cid = centroid_cids[best_idx]
+        best_cid = exemplar_cids[best_idx]
         # Allow photo in multiple profiles — only skip if already in THIS cluster
         if ph not in cluster_hashes[best_cid]:
             new_for_cluster[best_cid].add(ph)
@@ -632,7 +722,7 @@ def scan_video_faces(videos):
 
     print("[video-faces] Loading InsightFace buffalo_l model…")
     app = FaceAnalysis(name="buffalo_l", providers=["CPUExecutionProvider"])
-    app.prepare(ctx_id=0, det_size=(640, 640))
+    app.prepare(ctx_id=0, det_size=(960, 960))
     print(f"[video-faces] {len(videos)} videos total, {len(todo)} to process\n")
 
     face_data = dict(existing)
@@ -723,7 +813,8 @@ def scan_video_faces(videos):
             emb_idx = len(all_embs)
             all_embs.append(ff["emb"])
             # bbox stored as [top, right, bottom, left] — matches photo format
-            faces.append({"bbox": [y1, x2, y2, x1], "emb_idx": emb_idx})
+            faces.append({"bbox": [y1, x2, y2, x1], "emb_idx": emb_idx,
+                          "det_score": round(float(ff["det_score"]), 3)})
 
             # Save 150×150 face crop (same as photos)
             img_pil = ff["img_pil"]
@@ -786,6 +877,7 @@ def resync_clusters(max_iters=10):
         face_data = json.load(f)
     with open(FACE_CLUSTERS_FILE) as f:
         clusters = json.load(f)
+    score_map = _build_score_map(face_data)
 
     named = {cid: c for cid, c in clusters.items() if c.get("name")}
     if not named:
@@ -802,30 +894,36 @@ def resync_clusters(max_iters=10):
     total_added = 0
 
     for iteration in range(1, max_iters + 1):
-        # Recompute centroids from current photo_hashes each iteration
-        centroids = {}
+        # Recompute exemplars from current photo_hashes each iteration
+        exemplar_map = {}  # cid → array of exemplar embeddings
         for cid, c in named.items():
             excluded = set(c.get("excluded_hashes", []))
             hset = set(h for h in c.get("photo_hashes", []) if h not in excluded)
-            idxs = [idx for idx, ph in emb_to_hash.items() if ph in hset]
-            if idxs:
-                centroids[cid] = embs[idxs].mean(axis=0)
+            all_idxs = [idx for idx, ph in emb_to_hash.items() if ph in hset]
+            # Quality-gate: only high-confidence faces
+            hq_idxs = [i for i in all_idxs if score_map.get(i, 1.0) >= MIN_DET_SCORE]
+            if not hq_idxs:
+                hq_idxs = all_idxs  # fallback
+            if hq_idxs:
+                exemplar_map[cid] = _pick_exemplars(embs[hq_idxs])
 
-        if not centroids:
-            print("[resync] Could not compute any centroids.")
+        if not exemplar_map:
+            print("[resync] Could not compute any exemplars.")
             return
 
-        cids = list(centroids.keys())
-        cmat = np.stack([centroids[c] for c in cids])
+        cids = list(exemplar_map.keys())
+        exemplar_arrays = [exemplar_map[c] for c in cids]
 
-        # Assign each embedding to nearest centroid with a margin requirement.
-        # If two centroids are within MARGIN of each other, the embedding is
+        # Assign each embedding to nearest cluster via min-exemplar distance.
+        # If two clusters are within MARGIN of each other, the embedding is
         # considered ambiguous and kept in its current cluster (no forced move).
         MARGIN = 0.08
         emb_to_cluster = {}  # only confident assignments
         for emb_idx in emb_to_hash:
             if emb_idx < len(embs):
-                dists = np.linalg.norm(cmat - embs[emb_idx], axis=1)
+                emb = embs[emb_idx]
+                dists = np.array([float(np.min(np.linalg.norm(ex - emb, axis=1)))
+                                  for ex in exemplar_arrays])
                 order = np.argsort(dists)
                 best, second = dists[order[0]], dists[order[1]]
                 if second - best >= MARGIN:  # confident enough
@@ -856,11 +954,12 @@ def resync_clusters(max_iters=10):
                 else:
                     moved += 1  # all confident faces point elsewhere
 
-                for ph, should_be_in in photo_to_clusters.items():
-                    if cid in should_be_in and ph not in excluded and ph not in new_hashes:
-                        new_hashes.add(ph)
-                        if ph not in current_hashes:
-                            added += 1
+            # Add photos that should be in this cluster (once per cluster, not per photo)
+            for ph, should_be_in in photo_to_clusters.items():
+                if cid in should_be_in and ph not in excluded and ph not in new_hashes:
+                    new_hashes.add(ph)
+                    if ph not in current_hashes:
+                        added += 1
 
             c["photo_hashes"] = sorted(new_hashes)
             c["photo_count"] = len(new_hashes)

@@ -46,10 +46,12 @@ session_display = {}
 _APP_DIR = os.path.dirname(os.path.abspath(__file__))
 _THUMB_DIR = os.path.join(_APP_DIR, "static", "thumbs")
 _THUMB_HQ_DIR = os.path.join(_APP_DIR, "static", "thumbs_hq")
+_THUMB_PREVIEW_DIR = os.path.join(_APP_DIR, "static", "thumbs_preview")
 SESSIONS_DIR = os.path.join(_APP_DIR, ".sessions")
 os.makedirs(SESSIONS_DIR, exist_ok=True)
 os.makedirs(_THUMB_DIR, exist_ok=True)
 os.makedirs(_THUMB_HQ_DIR, exist_ok=True)
+os.makedirs(_THUMB_PREVIEW_DIR, exist_ok=True)
 _thumb_cache = {}
 _thumb_cache_lock = threading.Lock()
 
@@ -149,12 +151,15 @@ def _preload_thumb_batch(items):
 def _serve_thumb_on_demand():
     """Intercept thumbnail requests. Serve from RAM, disk, or generate on demand."""
     path = request.path
-    if path.startswith("/static/thumbs_hq/"):
+    if path.startswith("/static/thumbs_preview/"):
+        directory = _THUMB_PREVIEW_DIR
+        tier = "preview"
+    elif path.startswith("/static/thumbs_hq/"):
         directory = _THUMB_HQ_DIR
-        is_hq = True
+        tier = "hq"
     elif path.startswith("/static/thumbs/"):
         directory = _THUMB_DIR
-        is_hq = False
+        tier = "thumb"
     else:
         return None
 
@@ -163,23 +168,41 @@ def _serve_thumb_on_demand():
 
     name = secure_filename(path.rsplit("/", 1)[-1])
 
-    # 1. RAM cache hit
-    data = _read_thumb(directory, name)
-    if data is not None:
-        return Response(data, mimetype="image/jpeg", headers={
-            "Cache-Control": "public, max-age=604800, immutable",
-        })
+    # 1. RAM cache hit (skip RAM cache for large previews to save memory)
+    if tier != "preview":
+        data = _read_thumb(directory, name)
+        if data is not None:
+            return Response(data, mimetype="image/jpeg", headers={
+                "Cache-Control": "public, max-age=604800, immutable",
+            })
 
-    # 2. Generate from original photo and cache to disk
+    # 2. Disk hit for preview tier
+    if tier == "preview":
+        disk_path = os.path.join(directory, name)
+        if os.path.exists(disk_path):
+            return send_file(disk_path, mimetype="image/jpeg",
+                             max_age=604800, conditional=True)
+
+    # 3. Generate from original photo
     orig_path = _hash_to_path.get(name)
     if orig_path and os.path.isfile(orig_path):
         ext = os.path.splitext(orig_path)[1].lower()
         is_video = ext in VIDEO_EXTS
-        size = 800 if is_hq else 475
-        quality = 2 if is_hq else 3
+        if tier == "preview":
+            size, quality = 2048, 1
+        elif tier == "hq":
+            size, quality = 800, 2
+        else:
+            size, quality = 475, 3
         out_path = os.path.join(directory, name)
         if gen_thumb(orig_path, out_path, size, quality, is_video):
+            if tier == "preview":
+                return send_file(out_path, mimetype="image/jpeg",
+                                 max_age=604800, conditional=True)
             data = _read_thumb(directory, name)
+
+    if tier == "preview":
+        abort(404)
 
     if data is None:
         abort(404)
@@ -1092,7 +1115,41 @@ def download_photo_direct():
 
 # ─── Photo Upload (iPhone Sync) ───
 
-from photo_scanner import gen_thumb, get_media_date, hash_path, IMAGE_EXTS, VIDEO_EXTS, ALL_EXTS, THUMB_DIR, THUMB_HQ_DIR, PHOTOS_ROOT
+from photo_scanner import gen_thumb, get_media_date, hash_path, IMAGE_EXTS, VIDEO_EXTS, ALL_EXTS, THUMB_DIR, THUMB_HQ_DIR, PHOTOS_ROOT, CONTENT_HASH_FILE
+import hashlib as _hashlib
+
+_content_hashes = {}
+_content_hashes_lock = threading.Lock()
+
+
+def _load_content_hashes():
+    """Load content_hashes.json into memory (called in background thread)."""
+    global _content_hashes
+    if os.path.exists(CONTENT_HASH_FILE):
+        try:
+            with open(CONTENT_HASH_FILE) as f:
+                data = json.load(f)
+            with _content_hashes_lock:
+                _content_hashes = data
+            print(f"[hashes] Loaded {len(data)} content hashes")
+        except Exception as e:
+            print(f"[hashes] Failed to load content hashes: {e}")
+    else:
+        print("[hashes] No content_hashes.json found — upload dedup disabled until built")
+
+
+def _save_content_hashes():
+    """Persist content hashes to disk (runs in background thread)."""
+    with _content_hashes_lock:
+        data = dict(_content_hashes)
+    try:
+        with open(CONTENT_HASH_FILE, "w") as f:
+            json.dump(data, f)
+    except Exception as e:
+        print(f"[hashes] Failed to save content hashes: {e}")
+
+
+threading.Thread(target=_load_content_hashes, daemon=True).start()
 
 
 @app.route("/api/upload", methods=["POST"])
@@ -1111,17 +1168,33 @@ def upload_photo():
     if ext not in ALL_EXTS:
         return jsonify({"error": f"Unsupported file type: {ext}"}), 400
 
+    # Read file bytes and compute content hash for dedup
+    file_bytes = f.read()
+    content_sha = _hashlib.sha256(file_bytes).hexdigest()
+
+    # Content-hash dedup: same bytes already on NAS (regardless of filename)
+    with _content_hashes_lock:
+        existing = _content_hashes.get(content_sha)
+    if existing:
+        return jsonify({"status": "skipped", "reason": "duplicate_content",
+                        "existing_path": existing}), 200
+
     # Save to iPhone/<YYYY>/<MM>/
     now = datetime.now()
     dest_dir = os.path.join(PHOTOS_ROOT, "iPhone", str(now.year), f"{now.month:02d}")
     os.makedirs(dest_dir, exist_ok=True)
     dest_path = os.path.join(dest_dir, filename)
 
-    # Skip duplicates
+    # Handle filename collisions with incrementing suffix
     if os.path.exists(dest_path):
-        return jsonify({"status": "skipped", "reason": "duplicate", "path": dest_path}), 200
+        stem, fext = os.path.splitext(filename)
+        counter = 1
+        while os.path.exists(dest_path):
+            dest_path = os.path.join(dest_dir, f"{stem}_{counter}{fext}")
+            counter += 1
 
-    f.save(dest_path)
+    with open(dest_path, "wb") as out_f:
+        out_f.write(file_bytes)
 
     # Generate thumbnails
     rel_path = os.path.relpath(dest_path, PHOTOS_ROOT)
@@ -1167,6 +1240,11 @@ def upload_photo():
     _summary_cache["data"] = None
     _summary_cache["mtime"] = 0
     _month_json_cache["data"] = None
+
+    # Register content hash and persist in background
+    with _content_hashes_lock:
+        _content_hashes[content_sha] = dest_path
+    threading.Thread(target=_save_content_hashes, daemon=True).start()
 
     return jsonify({"status": "ok", "entry": entry}), 201
 
@@ -1395,6 +1473,100 @@ if _should_run_background():
     threading.Thread(target=_startup_preload, daemon=True).start()
 
 
+# ─── Auto-scan for new photos ───
+
+_AUTO_SCAN_INTERVAL = 60  # seconds between scans
+
+def _auto_scan_loop():
+    """Background thread: detect new photos on disk and add them to the index automatically."""
+    import time as _time
+    _time.sleep(15)  # let startup finish first
+
+    skip_dirs = {"takeouts"}
+    skip_patterns = {"branded", "low-res"}
+
+    while True:
+        try:
+            items = load_photo_index()
+            known_paths = {e["path"] for e in items}
+            # Also check aliased paths (NAS vs Mac mount)
+            known_aliased = set()
+            for p in known_paths:
+                known_aliased.add(p)
+                alt = resolve_media_path(p)
+                if alt:
+                    known_aliased.add(alt)
+
+            new_files = []
+            for root, dirs, files in os.walk(PHOTOS_ROOT):
+                dirs[:] = [d for d in dirs if d not in skip_dirs]
+                for fname in files:
+                    if fname.startswith("._"):
+                        continue
+                    fname_lower = fname.lower()
+                    if any(pat in fname_lower for pat in skip_patterns):
+                        continue
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext not in ALL_EXTS:
+                        continue
+                    filepath = os.path.join(root, fname)
+                    if filepath not in known_aliased:
+                        new_files.append((filepath, ext))
+
+            if new_files:
+                print(f"[auto-scan] Found {len(new_files)} new file(s), indexing...")
+                new_entries = []
+                for filepath, ext in new_files:
+                    try:
+                        is_video = ext in VIDEO_EXTS
+                        date = get_media_date(filepath)
+                        if date is None:
+                            date = os.path.getmtime(filepath)
+                        rel_path = os.path.relpath(filepath, PHOTOS_ROOT)
+                        thumb_name = hash_path(rel_path) + ".jpg"
+                        entry = {
+                            "path": filepath,
+                            "thumb": f"/static/thumbs/{thumb_name}",
+                            "thumb_hq": f"/static/thumbs_hq/{thumb_name}",
+                            "date": date,
+                            "type": "video" if is_video else "image",
+                        }
+                        new_entries.append(entry)
+                        # Generate thumbnails immediately
+                        thumb_path = os.path.join(THUMB_DIR, thumb_name)
+                        hq_path = os.path.join(THUMB_HQ_DIR, thumb_name)
+                        if not os.path.exists(thumb_path):
+                            gen_thumb(filepath, thumb_path, 475, 3, is_video)
+                        if not os.path.exists(hq_path):
+                            gen_thumb(filepath, hq_path, 800, 2, is_video)
+                    except Exception as e:
+                        print(f"[auto-scan] Failed to index {filepath}: {e}")
+
+                if new_entries:
+                    merged = items + new_entries
+                    merged.sort(key=lambda x: x["date"], reverse=True)
+                    with open(PHOTO_INDEX_PATH, "w") as f:
+                        json.dump(merged, f)
+                    # Bust caches so the app picks up new photos
+                    _photo_cache["data"] = None
+                    _photo_cache["mtime"] = 0
+                    _summary_cache["data"] = None
+                    _summary_cache["mtime"] = 0
+                    _month_cache["data"] = None
+                    _month_json_cache["data"] = None
+                    # Rebuild hash index for new photos
+                    fresh = load_photo_index()
+                    _build_hash_index(fresh)
+                    print(f"[auto-scan] Added {len(new_entries)} photos. Index now has {len(merged)} entries.")
+        except Exception as e:
+            print(f"[auto-scan] Error: {e}")
+
+        _time.sleep(_AUTO_SCAN_INTERVAL)
+
+if _should_run_background():
+    threading.Thread(target=_auto_scan_loop, daemon=True).start()
+
+
 # ─── AI Search (CLIP semantic search + face clusters) ───
 
 _AI_DIR = os.path.join(_APP_DIR, "ai_data")
@@ -1447,30 +1619,80 @@ def _load_ai_index():
 
     # Load face embeddings and build centroid / emb→cluster lookup
     fe_path = os.path.join(_AI_DIR, "face_embeddings.npy")
+    MIN_DET_SCORE = 0.5
     if os.path.exists(fe_path) and _ai["face_index"] is not None:
         face_embs = np.load(fe_path)
         _ai["face_embs"] = face_embs
         emb_to_hash = {}
+        score_map = {}
         for ph, faces in _ai["face_index"].items():
             for face in faces:
                 emb_to_hash[face["emb_idx"]] = ph
+                score_map[face["emb_idx"]] = face.get("det_score", 1.0)
         centroids = {}
+        exemplar_data = {}  # cid → np array of exemplar embeddings
         for cid, c in _ai["face_clusters"].items():
             excluded = set(c.get("excluded_hashes", []))
-            hset = set(h for h in c.get("photo_hashes", []) if h not in excluded)
-            idxs = [idx for idx, h in emb_to_hash.items() if h in hset]
+            stored = c.get("emb_indices")
+            if stored:
+                # Use stored per-face indices (clean, no bystander pollution)
+                idxs = [i for i in stored if i < len(face_embs)]
+            else:
+                # Legacy fallback: refine by keeping only the closest face
+                # per photo to filter out bystanders in group photos
+                hset = set(h for h in c.get("photo_hashes", []) if h not in excluded)
+                all_idxs = [idx for idx, h in emb_to_hash.items() if h in hset]
+                if not all_idxs:
+                    continue
+                rough_centroid = face_embs[all_idxs].mean(axis=0)
+                # Group by photo, keep closest face per photo
+                from collections import defaultdict
+                photo_faces = defaultdict(list)
+                for idx in all_idxs:
+                    photo_faces[emb_to_hash[idx]].append(idx)
+                idxs = []
+                for ph, face_idxs in photo_faces.items():
+                    if len(face_idxs) == 1:
+                        idxs.append(face_idxs[0])
+                    else:
+                        dists = [(i, float(np.linalg.norm(face_embs[i] - rough_centroid)))
+                                 for i in face_idxs]
+                        idxs.append(min(dists, key=lambda x: x[1])[0])
             if idxs:
-                centroids[cid] = face_embs[idxs].mean(axis=0)
+                # Quality-gate: only high-confidence faces for centroid
+                hq_idxs = [i for i in idxs if score_map.get(i, 1.0) >= MIN_DET_SCORE]
+                if not hq_idxs:
+                    hq_idxs = idxs
+                centroids[cid] = face_embs[hq_idxs].mean(axis=0)
+            # Load exemplars if available
+            stored_ex = c.get("exemplars")
+            if stored_ex and len(stored_ex) > 0:
+                exemplar_data[cid] = np.array(stored_ex, dtype=np.float32)
         _ai["face_centroids"] = centroids
+        _ai["face_exemplars"] = exemplar_data
         if centroids:
             cids = list(centroids.keys())
-            cmat = np.stack([centroids[c] for c in cids])
+            # Build emb→cluster using exemplar matching where available
             emb_to_cluster = {}
             for emb_idx, ph in emb_to_hash.items():
-                dists = np.linalg.norm(cmat - face_embs[emb_idx], axis=1)
-                emb_to_cluster[emb_idx] = cids[int(np.argmin(dists))]
+                if emb_idx >= len(face_embs):
+                    continue
+                emb = face_embs[emb_idx]
+                best_cid = None
+                best_dist = float("inf")
+                for ci in cids:
+                    if ci in exemplar_data:
+                        d = float(np.min(np.linalg.norm(exemplar_data[ci] - emb, axis=1)))
+                    else:
+                        d = float(np.linalg.norm(centroids[ci] - emb))
+                    if d < best_dist:
+                        best_dist = d
+                        best_cid = ci
+                if best_cid is not None:
+                    emb_to_cluster[emb_idx] = best_cid
             _ai["emb_to_cluster"] = emb_to_cluster
-        print(f"[ai] Face embeddings loaded, centroids for {len(centroids)} clusters.")
+        print(f"[ai] Face embeddings loaded, centroids for {len(centroids)} clusters, "
+              f"exemplars for {len(exemplar_data)}.")
 
     # Load screenshot/document hashes
     ss_path = os.path.join(_AI_DIR, "screenshot_hashes.json")
@@ -1987,7 +2209,7 @@ def api_face_photos(cluster_id):
         return jsonify([])
 
     photo_hashes = set(clusters[cluster_id].get("photo_hashes", []))
-    new_hashes = set(clusters[cluster_id].get("new_hashes", []))
+    new_hashes = set(clusters[cluster_id].get("new_hashes", [])) | set(clusters[cluster_id].get("review_hashes", []))
     items = load_photo_index()
     results = []
     for item in items:
@@ -2429,156 +2651,81 @@ def api_person_avatar(cluster_id):
 
     face_embs = _ai.get("face_embs")
     centroids = _ai.get("face_centroids") or {}
-    emb_to_cluster = _ai.get("emb_to_cluster") or {}
     centroid = centroids.get(cluster_id)
     excluded = set(c.get("excluded_hashes", []))
     photo_hashes = [h for h in c.get("photo_hashes", []) if h not in excluded]
 
-    candidates = []
-    for ph in photo_hashes:
-        faces = face_index.get(ph, [])
-        best_size = 0
-        best_dist = 999.0
-        best_bbox = None
-        biggest_other = 0
-        for face in faces:
-            idx = face["emb_idx"]
-            top, right, bottom, left = face["bbox"]
-            face_size = max(right - left, bottom - top)
-            if emb_to_cluster.get(idx) != cluster_id:
-                # Track the largest *other* person's face
-                if face_size > biggest_other:
-                    biggest_other = face_size
-                continue
-            if face_size > best_size:
-                best_size = face_size
-                best_bbox = face["bbox"]
-                if centroid is not None and face_embs is not None and idx < len(face_embs):
-                    best_dist = float(np.linalg.norm(face_embs[idx] - centroid))
+    # --- Direct face-crop approach ---
+    # Find the face embedding that best represents this cluster and serve
+    # its pre-cropped face image from /static/faces/{emb_idx}.jpg.
+    # This is reliable because each face crop is guaranteed to be one person.
+    stored_indices = c.get("emb_indices")
+    if stored_indices and face_embs is not None and centroid is not None:
+        # Use stored embedding indices (authoritative from clustering)
+        valid = [i for i in stored_indices if i < len(face_embs)]
+        if valid:
+            dists = [(i, float(np.linalg.norm(face_embs[i] - centroid))) for i in valid]
+            dists.sort(key=lambda x: x[1])
+            for best_idx, _ in dists[:10]:
+                face_path = os.path.join(app.static_folder, "faces", f"{best_idx}.jpg")
+                if os.path.exists(face_path):
+                    try:
+                        img = Image.open(face_path).convert("RGB")
+                        sq = img.resize((300, 300), Image.LANCZOS)
+                        buf = io.BytesIO()
+                        sq.save(buf, "JPEG", quality=90)
+                        buf.seek(0)
+                        data = buf.read()
+                        with open(cache_path, "wb") as f:
+                            f.write(data)
+                        return send_file(cache_path, mimetype="image/jpeg",
+                                         max_age=86400, conditional=True)
+                    except Exception:
+                        continue
 
-        # Require a decently large face — reject tiny detections
-        if best_size < 80 or best_bbox is None:
-            continue
+    # Fallback: find best face from cluster's photos using centroid distance
+    if face_embs is not None and centroid is not None:
+        photo_set = set(photo_hashes)
+        emb_to_hash_local = {}
+        for ph in photo_hashes:
+            for face in face_index.get(ph, []):
+                emb_to_hash_local[face["emb_idx"]] = ph
 
-        # Face dominance: ratio of our face to the biggest other face
-        # 1.0+ means we're the biggest face, <1.0 means someone else dominates
-        dominance = best_size / biggest_other if biggest_other > 0 else 5.0
+        # For each photo, pick the face closest to centroid (this person's face)
+        best_per_photo = []
+        from collections import defaultdict
+        photo_faces = defaultdict(list)
+        for idx, ph in emb_to_hash_local.items():
+            photo_faces[ph].append(idx)
 
-        candidates.append({
-            "hash": ph,
-            "bbox": best_bbox,
-            "face_size": best_size,
-            "face_dist": best_dist,
-            "num_faces": len(faces),
-            "dominance": dominance,
-        })
-
-    if not candidates:
-        return jsonify({"error": "No face found"}), 404
-
-    # Pre-sort by face size and only quality-score the top 50
-    candidates.sort(key=lambda c: -c["face_size"])
-    candidates = candidates[:50]
-
-    # Score candidates using actual image quality of the face crop
-    scored = []
-    for cand in candidates:
-        ph = cand["hash"]
-        thumb_path = os.path.join(app.static_folder, "thumbs", ph + ".jpg")
-        if not os.path.exists(thumb_path):
-            continue
-        try:
-            img = Image.open(thumb_path).convert("RGB")
-        except Exception:
-            continue
-
-        tw, th = img.size
-        top, right, bottom, left = cand["bbox"]
-        # Scale bbox if detected on 1024px original
-        if right > tw or bottom > th:
-            if tw >= th:
-                ow, oh = 1024, round(th * 1024 / tw)
+        for ph, idxs in photo_faces.items():
+            if len(idxs) == 1:
+                idx = idxs[0]
             else:
-                oh, ow = 1024, round(tw * 1024 / th)
-            sx, sy = tw / ow, th / oh
-            top, bottom = int(top * sy), int(bottom * sy)
-            left, right = int(left * sx), int(right * sx)
+                idx = min(idxs, key=lambda i: float(np.linalg.norm(face_embs[i] - centroid))
+                          if i < len(face_embs) else 999.0)
+            if idx < len(face_embs):
+                d = float(np.linalg.norm(face_embs[idx] - centroid))
+                best_per_photo.append((d, idx))
 
-        fw, fh = right - left, bottom - top
-        face_size = max(fw, fh)
-
-        # Crop the face region for quality checks
-        cx, cy = (left + right) / 2, (top + bottom) / 2
-        side = max(fw, fh) * 1.4
-        half = side / 2
-        x1 = max(0, int(cx - half))
-        y1 = max(0, int(cy - half))
-        x2 = min(tw, int(cx + half))
-        y2 = min(th, int(cy + half))
-        face_crop = img.crop((x1, y1, x2, y2))
-
-        # Sharpness — Laplacian variance via numpy (fast)
-        fc_small = face_crop.convert("L").resize((64, 64), Image.LANCZOS)
-        arr = np.array(fc_small, dtype=np.float32)
-        # Laplacian approximation: variance of difference from neighbors
-        lap = (4 * arr[1:-1, 1:-1]
-               - arr[:-2, 1:-1] - arr[2:, 1:-1]
-               - arr[1:-1, :-2] - arr[1:-1, 2:])
-        sharpness = float(np.var(lap))
-
-        # Brightness — reject too dark or blown out
-        avg_brightness = float(arr.mean())
-        brightness_ok = 1.0 if 60 < avg_brightness < 220 else 0.3
-
-        # Face-to-image ratio — bigger face in frame = better portrait
-        face_ratio = face_size / max(tw, th)
-
-        # Identity closeness (how close to cluster centroid)
-        identity = max(0.0, 1.0 - min(cand["face_dist"], 2.0))
-
-        # Fewer faces in photo = more likely a portrait
-        solo_bonus = 1.0 if cand["num_faces"] <= 2 else 0.6
-
-        # Face dominance — is this person the star of the photo?
-        # If someone else's face is bigger, heavily penalize
-        dom = cand["dominance"]
-        if dom < 0.8:
-            dominance_mult = 0.2    # someone else dominates — bad avatar
-        elif dom < 1.2:
-            dominance_mult = 0.7    # roughly equal — meh
-        else:
-            dominance_mult = 1.0    # we're the biggest face — good
-
-        # Composite score — face size, sharpness, and dominance rule
-        score = (
-            face_size * 3.0 +              # big face = good
-            sharpness * 0.005 +             # sharp = good
-            face_ratio * 500.0 +            # face fills frame = good
-            identity * 80.0 +               # looks like this person = good
-            solo_bonus * 100.0              # solo/duo photo = good
-        ) * brightness_ok * dominance_mult  # dark/dominated = bad
-
-        scored.append((score, ph, cand["bbox"]))
-
-    if not scored:
-        return jsonify({"error": "No face found"}), 404
-
-    scored.sort(key=lambda x: -x[0])
-
-    # Crop around the actual face
-    for _, best_hash, bbox in scored[:10]:
-        thumb_path = os.path.join(app.static_folder, "thumbs", best_hash + ".jpg")
-        if not os.path.exists(thumb_path):
-            continue
-        try:
-            buf = _square_face_crop(thumb_path, bbox, size=300)
-            data = buf.read()
-            with open(cache_path, "wb") as f:
-                f.write(data)
-            return send_file(cache_path, mimetype="image/jpeg",
-                             max_age=86400, conditional=True)
-        except Exception:
-            continue
+        # Sort by distance to centroid — closest = most representative
+        best_per_photo.sort(key=lambda x: x[0])
+        for _, best_idx in best_per_photo[:10]:
+            face_path = os.path.join(app.static_folder, "faces", f"{best_idx}.jpg")
+            if os.path.exists(face_path):
+                try:
+                    img = Image.open(face_path).convert("RGB")
+                    sq = img.resize((300, 300), Image.LANCZOS)
+                    buf = io.BytesIO()
+                    sq.save(buf, "JPEG", quality=90)
+                    buf.seek(0)
+                    data = buf.read()
+                    with open(cache_path, "wb") as f:
+                        f.write(data)
+                    return send_file(cache_path, mimetype="image/jpeg",
+                                     max_age=86400, conditional=True)
+                except Exception:
+                    continue
 
     return jsonify({"error": "No usable face found"}), 404
 

@@ -19,6 +19,7 @@ PHOTOS_ROOT = os.path.join(os.path.dirname(SCRIPT_DIR), "PHOTOS", "PHOTOS")
 THUMB_DIR = os.path.join(SCRIPT_DIR, "static", "thumbs")
 THUMB_HQ_DIR = os.path.join(SCRIPT_DIR, "static", "thumbs_hq")
 INDEX_FILE = os.path.join(SCRIPT_DIR, "photo_index.json")
+CONTENT_HASH_FILE = os.path.join(SCRIPT_DIR, "content_hashes.json")
 
 WORKERS = 8
 
@@ -355,9 +356,79 @@ def scan_incremental():
     print(f"[incremental] Index now has {len(merged)} entries.")
 
 
+def _hash_file(filepath):
+    """Compute SHA256 of a file. Runs in worker process."""
+    h = hashlib.sha256()
+    try:
+        with open(filepath, "rb") as fh:
+            while True:
+                chunk = fh.read(1024 * 1024)  # 1 MB chunks
+                if not chunk:
+                    break
+                h.update(chunk)
+        return h.hexdigest(), filepath
+    except Exception:
+        return None, filepath
+
+
+def build_content_hashes():
+    """Walk PHOTOS_ROOT and build {sha256: filepath} mapping for dedup."""
+    print(f"[hashes] Scanning {PHOTOS_ROOT} for media files ...")
+    start = time.time()
+
+    SKIP_DIRS = {"takeouts"}
+    SKIP_PATTERNS = {"branded", "low-res"}
+
+    all_files = []
+    for root, dirs, files in os.walk(PHOTOS_ROOT):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
+        for fname in files:
+            if fname.startswith("._"):
+                continue
+            fname_lower = fname.lower()
+            if any(pat in fname_lower for pat in SKIP_PATTERNS):
+                continue
+            ext = os.path.splitext(fname)[1].lower()
+            if ext in ALL_EXTS:
+                all_files.append(os.path.join(root, fname))
+
+    total = len(all_files)
+    print(f"[hashes] Found {total} media files in {time.time() - start:.1f}s")
+    print(f"[hashes] Computing SHA256 hashes with {WORKERS} workers ...")
+
+    hashes = {}
+    done = 0
+    failed = 0
+
+    with ProcessPoolExecutor(max_workers=WORKERS) as pool:
+        future_to_path = {pool.submit(_hash_file, fp): fp for fp in all_files}
+        for future in as_completed(future_to_path):
+            sha, filepath = future.result()
+            if sha:
+                hashes[sha] = filepath
+                done += 1
+                if done % 5000 == 0:
+                    elapsed = time.time() - start
+                    rate = done / elapsed if elapsed > 0 else 0
+                    remaining = (total - done - failed) / rate if rate > 0 else 0
+                    print(f"  {done}/{total} hashed ({rate:.0f}/s, ~{remaining/60:.1f}m remaining)")
+            else:
+                failed += 1
+
+    with open(CONTENT_HASH_FILE, "w") as f:
+        json.dump(hashes, f)
+
+    elapsed = time.time() - start
+    print(f"[hashes] Done in {elapsed:.1f}s ({elapsed/60:.1f}m)")
+    print(f"  Hashed: {done}  Failed: {failed}  Unique: {len(hashes)}")
+    print(f"  -> {CONTENT_HASH_FILE}")
+
+
 if __name__ == "__main__":
     import sys
     if len(sys.argv) > 1 and sys.argv[1] == "--incremental":
         scan_incremental()
+    elif len(sys.argv) > 1 and sys.argv[1] == "--build-hashes":
+        build_content_hashes()
     else:
         scan()

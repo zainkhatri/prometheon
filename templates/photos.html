@@ -143,7 +143,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 20px 24px 40px;
+            padding: calc(20px + env(safe-area-inset-top, 0px)) 24px 40px;
             background: linear-gradient(to bottom, rgba(0,0,0,0.7) 0%, transparent 100%);
         }
         .lb-top-left, .lb-top-right {
@@ -595,7 +595,7 @@
         /* View tabs */
         .view-tab {
             font-family: 'Rajdhani', sans-serif;
-            font-size: 10px;
+            font-size: 13px;
             font-weight: 700;
             letter-spacing: 0.12em;
             text-transform: uppercase;
@@ -909,8 +909,8 @@
             }
             #search-input:focus { width: 100% !important; }
             .view-tab { padding: 6px 10px !important; }
-            #trash-btn span, #people-btn span, #select-btn span { display: none; }
-            #trash-btn, #people-btn, #select-btn { padding: 6px 10px !important; }
+            #trash-btn span, #people-btn span, #select-btn span, #upload-btn span { display: none; }
+            #trash-btn, #people-btn, #select-btn, #upload-btn { padding: 6px 10px !important; }
 
             .lb-top, .lb-bottom { padding-left: 16px; padding-right: 16px; }
             .lb-nav { width: 36px; height: 64px; }
@@ -1020,47 +1020,195 @@
             color: var(--term-gray, #888);
             font-family: 'JetBrains Mono', monospace;
         }
+
+        /* ─── Upload modal ─── */
+        #upload-modal {
+            display: none;
+            position: fixed;
+            inset: 0;
+            z-index: 1050;
+            background: rgba(0,0,0,0.85);
+            backdrop-filter: blur(6px);
+            justify-content: center;
+            align-items: center;
+        }
+        #upload-modal.active { display: flex; }
+        .upload-panel {
+            background: var(--bg-panel, #0a0f1a);
+            border: 1px solid var(--border, #1a2a3a);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 560px;
+            max-height: 85vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .upload-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            border-bottom: 1px solid var(--border, #1a2a3a);
+        }
+        .upload-header h2 {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--accent-bright, #5eead4);
+            letter-spacing: 0.15em;
+            text-transform: uppercase;
+            margin: 0;
+        }
+        .upload-close {
+            background: none;
+            border: none;
+            color: var(--term-gray, #888);
+            cursor: pointer;
+            padding: 4px;
+            transition: color 0.2s;
+        }
+        .upload-close:hover { color: var(--term-white, #e0e0e0); }
+        .upload-drop {
+            margin: 16px 20px;
+            padding: 32px 20px;
+            border: 2px dashed rgba(255,255,255,0.15);
+            border-radius: 12px;
+            text-align: center;
+            cursor: pointer;
+            transition: border-color 0.2s, background 0.2s;
+        }
+        .upload-drop:hover, .upload-drop.dragover {
+            border-color: var(--accent-dim, #2dd4bf55);
+            background: rgba(45,212,191,0.05);
+        }
+        .upload-drop svg { margin: 0 auto 8px; opacity: 0.5; }
+        .upload-drop p { color: var(--term-gray, #888); font-size: 12px; margin: 0; }
+        .upload-drop .browse-link { color: var(--accent, #2dd4bf); cursor: pointer; }
+        .upload-filelist {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px;
+            max-height: 35vh;
+        }
+        .upload-file {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid rgba(255,255,255,0.05);
+            font-size: 11px;
+        }
+        .upload-file-name {
+            flex: 1;
+            color: var(--term-white, #e0e0e0);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+        }
+        .upload-file-size {
+            color: var(--term-gray, #888);
+            white-space: nowrap;
+            font-size: 10px;
+        }
+        .upload-file-status {
+            width: 70px;
+            text-align: right;
+            white-space: nowrap;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .upload-file-status.waiting { color: var(--term-gray, #888); }
+        .upload-file-status.uploading { color: var(--accent, #2dd4bf); }
+        .upload-file-status.done { color: #34d399; }
+        .upload-file-status.duplicate { color: #fbbf24; }
+        .upload-file-status.error { color: #f87171; }
+        .upload-file-bar {
+            width: 100%;
+            height: 3px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 2px;
+            overflow: hidden;
+        }
+        .upload-file-bar-fill {
+            height: 100%;
+            background: var(--accent, #2dd4bf);
+            width: 0%;
+            transition: width 0.15s;
+            border-radius: 2px;
+        }
+        .upload-summary {
+            padding: 12px 20px;
+            border-top: 1px solid var(--border, #1a2a3a);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11px;
+            color: var(--term-gray, #888);
+        }
+        .upload-summary-stats span { margin-right: 12px; }
+        .upload-summary-stats .stat-ok { color: #34d399; }
+        .upload-summary-stats .stat-dup { color: #fbbf24; }
+        .upload-summary-stats .stat-err { color: #f87171; }
+        .upload-go {
+            background: var(--accent-dim, #2dd4bf55);
+            color: var(--accent-bright, #5eead4);
+            border: none;
+            padding: 6px 18px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            font-family: inherit;
+            transition: opacity 0.2s;
+        }
+        .upload-go:disabled { opacity: 0.4; cursor: default; }
     </style>
 </head>
 <body class="text-term-white font-mono min-h-screen" style="-webkit-text-size-adjust:100%">
 <div id="pg-overlay"></div>
 
 <!-- Top bar -->
-<header id="main-header" class="px-5 py-3 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
-    <div class="flex items-center gap-4">
+<header id="main-header" class="px-6 py-4 flex items-center justify-between sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
+    <div class="flex items-center gap-5">
         <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1" title="Home">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </a>
-        <div class="w-px h-4 bg-border/60 hidden sm:block"></div>
+        <div class="w-px h-5 bg-border/60 hidden sm:block"></div>
         <div class="flex items-baseline gap-3">
-            <span class="text-accent-bright font-bold text-[14px] sm:text-[15px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
-            <span class="text-term-dark text-[11px]" id="photo-count"></span>
+            <span class="text-accent-bright font-bold text-[18px] sm:text-[20px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
+            <span class="text-term-dark text-[13px]" id="photo-count"></span>
         </div>
     </div>
-    <div class="flex items-center gap-2 sm:gap-3">
+    <div class="flex items-center gap-3 sm:gap-4">
         <div class="relative" id="search-wrap">
             <input id="search-input" type="text" placeholder="Search..."
-                   class="w-28 sm:w-44 md:w-56 bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[11px] sm:text-[11px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
+                   class="w-32 sm:w-48 md:w-64 bg-bg-tertiary border border-border/70 rounded-lg pl-9 pr-4 py-2 text-[13px] sm:text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
                    autocomplete="off" spellcheck="false">
-            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            <svg class="absolute left-3 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
             <div id="search-suggestions" class="hidden"></div>
         </div>
-        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] font-medium shrink-0">
-            <button id="btn-year"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('year')">Year</button>
-            <button id="btn-month" class="view-tab px-3 sm:px-4 py-1.5 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
-            <button id="btn-grid"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('grid')">Grid</button>
+        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[13px] font-medium shrink-0">
+            <button id="btn-year"  class="view-tab px-4 sm:px-5 py-2 transition-all" onclick="setView('year')">Year</button>
+            <button id="btn-month" class="view-tab px-4 sm:px-5 py-2 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
+            <button id="btn-grid"  class="view-tab px-4 sm:px-5 py-2 transition-all" onclick="setView('grid')">Grid</button>
         </div>
-        <button id="people-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+        <button id="people-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
             <span>People</span>
         </button>
-        <button id="select-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
+        <button id="select-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
             <span>Select</span>
         </button>
-        <button id="trash-btn" class="text-term-gray hover:text-accent text-[11px] px-2 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+        <button id="trash-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
             <span>Trash</span>
+        </button>
+        <button id="upload-btn" class="text-term-gray hover:text-accent text-[13px] px-3 sm:px-4 py-2 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-2 shrink-0">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <span>Upload</span>
         </button>
     </div>
 </header>
@@ -1202,6 +1350,28 @@
     <div id="trash-list" class="flex-1 overflow-y-auto"></div>
 </div>
 
+<!-- Upload modal -->
+<div id="upload-modal">
+    <div class="upload-panel">
+        <div class="upload-header">
+            <h2>Upload Photos</h2>
+            <button class="upload-close" id="upload-close">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </button>
+        </div>
+        <div class="upload-drop" id="upload-drop">
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+            <p>Drag &amp; drop photos here</p>
+            <p>or <span class="browse-link">browse files</span></p>
+            <input type="file" id="upload-file-input" multiple accept="image/*,video/*,.heic,.heif" style="display:none">
+        </div>
+        <div class="upload-filelist" id="upload-filelist"></div>
+        <div class="upload-summary" id="upload-summary" style="display:none">
+            <div class="upload-summary-stats" id="upload-stats"></div>
+            <button class="upload-go" id="upload-go">Upload</button>
+        </div>
+    </div>
+</div>
 
 <script>
 window.__PHOTO_DATA__ = {{ photo_data_json | safe }};
@@ -1662,9 +1832,41 @@ function showLbItem(idx) {
     } else {
         const img = document.createElement('img');
         img.style.cssText = 'position:relative;z-index:1';
-        img.onload = () => { loading.remove(); bgWrap.style.display = 'none'; };
-        img.onerror = () => { loading.textContent = 'Failed to load'; };
+        // Three-tier loading: HQ thumb (instant) → 2048px preview → full original on zoom
+        const thumbHash = (item.thumb || '').split('/').pop();
+        const previewUrl = thumbHash ? ('/static/thumbs_preview/' + thumbHash) : '';
+        const fullUrl = item.path ? ('/media' + encodeURI(item.path)) : '';
+        // Stage 1: show HQ thumb immediately
         img.src = item.thumb_hq || item.thumb || '';
+        img.onload = function onHqLoad() {
+            loading.remove(); bgWrap.style.display = 'none';
+            // Stage 2: load 2048px preview in background, swap when ready
+            if (previewUrl) {
+                const preview = new Image();
+                preview.onload = () => {
+                    if (img.parentNode) img.src = previewUrl;
+                    // Stage 3: preload full original, swap on zoom/tap or when ready
+                    if (fullUrl) {
+                        const full = new Image();
+                        full.onload = () => { img.dataset.fullSrc = fullUrl; };
+                        full.src = fullUrl;
+                    }
+                };
+                preview.src = previewUrl;
+            } else if (fullUrl) {
+                // No preview tier available — load full directly
+                const full = new Image();
+                full.onload = () => { if (img.parentNode) img.src = fullUrl; };
+                full.src = fullUrl;
+            }
+            img.onload = null;  // clear handler so stage 2/3 swaps don't re-trigger
+        };
+        img.onerror = () => { loading.textContent = 'Failed to load'; };
+        // Double-tap or pinch to swap to full original immediately
+        img.addEventListener('dblclick', () => {
+            if (img.dataset.fullSrc) img.src = img.dataset.fullSrc;
+            else if (fullUrl) img.src = fullUrl;
+        });
         lbMediaWrap.appendChild(img);
     }
 
@@ -1685,7 +1887,7 @@ function showLbItem(idx) {
                     el.className = 'lb-person';
                     const av = document.createElement('img');
                     av.className = 'lb-person-avatar';
-                    av.src = '/api/photos/people/' + p.cluster_id + '/avatar?v=11';
+                    av.src = '/api/photos/people/' + p.cluster_id + '/avatar?v=13';
                     av.onerror = function() { this.src = '/static/thumbs/' + p.sample_face + '.jpg'; };
                     const nm = document.createElement('span');
                     nm.className = 'lb-person-name';
@@ -1719,6 +1921,8 @@ lightbox.addEventListener('click', (e) => {
         }
         return;
     }
+    // Click on dark background area — close lightbox
+    closeLightbox();
 });
 document.getElementById('lb-prev').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex > 0) showLbItem(lbIndex - 1); });
 document.getElementById('lb-next').addEventListener('click', (e) => { e.stopPropagation(); if (lbIndex < _getLbItems().length - 1) showLbItem(lbIndex + 1); });
@@ -1850,7 +2054,7 @@ function showSuggestions() {
         const row = document.createElement('div');
         row.className = 'suggestion-row';
         row.dataset.idx = i;
-        row.innerHTML = '<img class="suggestion-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=11" onerror="this.style.opacity=0.15" loading="lazy">'
+        row.innerHTML = '<img class="suggestion-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=13" onerror="this.style.opacity=0.15" loading="lazy">'
             + '<span class="suggestion-name">' + p.name + '</span>'
             + '<span class="suggestion-count">' + p.photo_count + '</span>';
         row.addEventListener('mousedown', (e) => {
@@ -1937,7 +2141,7 @@ async function doSearch(q) {
             people.forEach(p => {
                 const chip = document.createElement('div');
                 chip.className = 'person-chip';
-                chip.innerHTML = '<img class="chip-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=11" onerror="this.style.opacity=0.15">'
+                chip.innerHTML = '<img class="chip-avatar" src="/api/photos/people/' + p.cluster_id + '/avatar?v=13" onerror="this.style.opacity=0.15">'
                     + '<span class="chip-name">' + p.name + '</span>'
                     + '<span class="chip-count">' + p.photo_count + '</span>';
                 chip.addEventListener('click', () => {
@@ -2052,20 +2256,13 @@ async function openTrashPanel() {
 let selectMode = false;
 const selectedHashes = new Set();
 
-document.getElementById('select-btn').addEventListener('click', async () => {
+document.getElementById('select-btn').addEventListener('click', () => {
     selectMode = true;
     document.body.classList.add('select-mode');
     document.getElementById('select-bar').classList.add('active');
-    document.getElementById('sel-count').textContent = 'Loading all photos…';
+    document.getElementById('sel-count').textContent = '0 selected';
     document.getElementById('sel-name-btn').disabled = true;
     document.getElementById('sel-download-btn').disabled = true;
-
-    // Force-load every unloaded section so all 36k photos are selectable
-    const unloaded = [...gallery.querySelectorAll('section[data-month-key]')]
-        .filter(s => s.dataset.loaded !== 'done' && s.dataset.loaded !== 'loading');
-    await Promise.all(unloaded.map(s => loadSection(s)));
-
-    document.getElementById('sel-count').textContent = '0 selected';
 });
 
 document.getElementById('sel-cancel').addEventListener('click', exitSelectMode);
@@ -2156,52 +2353,42 @@ document.getElementById('sel-download-btn').addEventListener('click', () => {
     if (!paths.length) return;
 
     const btn = document.getElementById('sel-download-btn');
+    const isMobile = navigator.maxTouchPoints > 0 && navigator.share;
 
-    // DEBUG — remove after diagnosis
-    btn.textContent = `tp:${navigator.maxTouchPoints} sh:${!!navigator.share} proto:${location.protocol}`;
-    btn.disabled = false;
-    setTimeout(() => { btn.textContent = 'Download'; btn.disabled = false; }, 4000);
-    return;
-
-    // iOS: call navigator.share() synchronously from the tap so activation is valid
-    if (navigator.maxTouchPoints > 0 && navigator.share) {
-        const cached = paths.map(p => _shareCache.get(p));
-        if (cached.every(Boolean)) {
-            // All files ready — share instantly (synchronous, activation guaranteed)
-            navigator.share({ files: cached }).catch(e => {
-                if (e.name !== 'AbortError')
-                    window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
-            });
-            return;
-        }
-
-        // Some files not cached yet — fetch the missing ones then share
-        // (may lose activation on older iOS but usually fast enough)
-        btn.disabled = true;
-        let done = cached.filter(Boolean).length;
-        btn.textContent = `${done} / ${paths.length}`;
-        Promise.all(paths.map(async (p, i) => {
-            if (cached[i]) return cached[i];
-            const r = await fetch(_shareUrl(p));
-            if (!r.ok) throw new Error(r.status);
-            const b = await r.blob();
-            const mime = _isVideo(p) ? (b.type || 'video/mp4') : 'image/jpeg';
-            const f = new File([b], _shareFilename(p), { type: mime });
-            _shareCache.set(p, f);
-            btn.textContent = `${++done} / ${paths.length}`;
-            return f;
-        })).then(files => {
-            btn.textContent = 'Download'; btn.disabled = selectedHashes.size === 0;
-            return navigator.share({ files });
-        }).catch(e => {
-            btn.textContent = 'Download'; btn.disabled = selectedHashes.size === 0;
-            if (e.name !== 'AbortError')
-                window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
-        });
+    if (!isMobile) {
+        window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
         return;
     }
 
-    window.location.href = '/api/photos/download-zip?' + paths.map(p => 'p=' + encodeURIComponent(p)).join('&');
+    // Check if all files are already cached
+    const cached = paths.map(p => _shareCache.get(p));
+    if (cached.every(Boolean)) {
+        navigator.share({ files: cached }).catch(() => {});
+        return;
+    }
+
+    // Fetch files first, then prompt user to tap again (fresh gesture for iOS activation)
+    btn.disabled = true;
+    let done = cached.filter(Boolean).length;
+    btn.textContent = `${done} / ${paths.length}`;
+    Promise.all(paths.map(async (p, i) => {
+        if (cached[i]) return cached[i];
+        const r = await fetch(_shareUrl(p));
+        if (!r.ok) throw new Error(r.status);
+        const b = await r.blob();
+        const mime = _isVideo(p) ? (b.type || 'video/mp4') : 'image/jpeg';
+        const f = new File([b], _shareFilename(p), { type: mime });
+        _shareCache.set(p, f);
+        btn.textContent = `${++done} / ${paths.length}`;
+        return f;
+    })).then(() => {
+        btn.textContent = 'Save to Photos';
+        btn.disabled = false;
+        // Next tap will hit the cached path above and share instantly
+    }).catch(() => {
+        btn.textContent = 'Download';
+        btn.disabled = false;
+    });
 });
 
 document.getElementById('sel-name-btn').addEventListener('click', () => {
@@ -2288,7 +2475,7 @@ async function openPeoplePanel() {
         function makeCard(c) {
             const card = document.createElement('div');
             card.className = 'person-card';
-            card.innerHTML = '<img class="person-avatar" src="/api/photos/people/' + c.id + '/avatar?v=11" loading="lazy" onerror="if(this.dataset.fell){this.style.opacity=0.15}else{this.dataset.fell=1;this.src=\'/static/thumbs/' + (c.sample_face||'') + '.jpg\'}">'
+            card.innerHTML = '<img class="person-avatar" src="/api/photos/people/' + c.id + '/avatar?v=13" loading="lazy" onerror="if(this.dataset.fell){this.style.opacity=0.15}else{this.dataset.fell=1;this.src=\'/static/thumbs/' + (c.sample_face||'') + '.jpg\'}">'
                 + '<div class="person-name">' + (c.name || 'Unknown') + '</div>'
                 + '<div class="person-count">' + c.photo_count + ' photos</div>';
             card.addEventListener('click', () => openPersonDetail(c));
@@ -2503,7 +2690,7 @@ function showReviewCard() {
         + '<div class="review-progress"><div class="review-progress-bar" style="width:' + progress + '%"></div></div>'
         + '<img class="review-photo" src="' + (item.thumb || '') + '" onerror="this.style.opacity=0.15">'
         + '<div class="review-suggestion">'
-        +   '<img class="review-avatar" src="/api/photos/people/' + (item.suggested_cluster || '') + '/avatar?v=11" onerror="this.style.opacity=0.15">'
+        +   '<img class="review-avatar" src="/api/photos/people/' + (item.suggested_cluster || '') + '/avatar?v=13" onerror="this.style.opacity=0.15">'
         +   '<div>'
         +     '<div class="review-name">' + item.suggested_name + '?</div>'
         +     '<div class="review-conf">' + item.confidence + '% confidence</div>'
@@ -2576,7 +2763,7 @@ async function _setPfp(photoHash) {
     const cid = _currentPersonCluster.id;
     _showToast('Setting profile picture...');
     try {
-        const resp = await fetch('/api/photos/people/' + cid + '/avatar?v=11', {
+        const resp = await fetch('/api/photos/people/' + cid + '/avatar?v=13', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ hash: photoHash })
@@ -2585,7 +2772,7 @@ async function _setPfp(photoHash) {
         _pfpSelectMode = false;
         // Update any visible avatar images for this person
         document.querySelectorAll('img[src*="/people/' + cid + '/avatar"]').forEach(img => {
-            img.src = '/api/photos/people/' + cid + '/avatar?v=11&t=' + Date.now();
+            img.src = '/api/photos/people/' + cid + '/avatar?v=13&t=' + Date.now();
         });
         _showToast('Profile picture updated!');
     } catch (e) {
@@ -2805,18 +2992,30 @@ async function openPersonDetail(cluster) {
         toolbar.appendChild(nameBtn);
         content.appendChild(toolbar);
 
+        // Separate review photos from regular ones
+        const reviewPhotos = photos.filter(p => p.is_new);
+        const regularPhotos = photos.filter(p => !p.is_new);
+
         // Group photos by month (present → past)
         const MONTH_NAMES = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
         const monthGroups = new Map();
-        for (let i = 0; i < photos.length; i++) {
-            const item = photos[i];
+        // Add review photos as special group first
+        if (reviewPhotos.length) {
+            monthGroups.set('_REVIEW', reviewPhotos.map(item => ({ item })));
+        }
+        for (let i = 0; i < regularPhotos.length; i++) {
+            const item = regularPhotos[i];
             const d = item.date ? new Date(item.date * 1000) : null;
             const key = d ? (d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0')) : '0000-00';
             if (!monthGroups.has(key)) monthGroups.set(key, []);
             monthGroups.get(key).push({ item });
         }
-        // Sort month keys newest first
-        const sortedKeys = [...monthGroups.keys()].sort((a, b) => b.localeCompare(a));
+        // Sort month keys: _REVIEW first, then newest first
+        const sortedKeys = [...monthGroups.keys()].sort((a, b) => {
+            if (a === '_REVIEW') return -1;
+            if (b === '_REVIEW') return 1;
+            return b.localeCompare(a);
+        });
         // Sort within each month by date descending and rebuild photos array in display order
         const reordered = [];
         for (const key of sortedKeys) {
@@ -2833,8 +3032,10 @@ async function openPersonDetail(cluster) {
             header.className = 'month-header visible';
             header.style.cssText = 'padding:14px 4px 8px;display:flex;align-items:baseline;gap:8px;';
             const parts = key.split('-');
-            const label = key === '0000-00' ? 'Unknown Date' : MONTH_NAMES[parseInt(parts[1])] + ' ' + parts[0];
-            header.innerHTML = '<span class="text-[22px] font-bold tracking-[0.12em] text-accent-bright" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase">' + label.toUpperCase() + '</span>'
+            const isReview = key === '_REVIEW';
+            const label = isReview ? 'New — Review' : (key === '0000-00' ? 'Unknown Date' : MONTH_NAMES[parseInt(parts[1])] + ' ' + parts[0]);
+            const labelColor = isReview ? 'color:#ff4a6e' : '';
+            header.innerHTML = '<span class="text-[22px] font-bold tracking-[0.12em]" style="font-family:\'Rajdhani\',sans-serif;font-weight:700;text-transform:uppercase;' + (isReview ? 'color:#ff4a6e' : 'color:var(--accent-bright)') + '">' + label.toUpperCase() + '</span>'
                 + '<span class="text-term-dark text-[14px]">' + entries.length + '</span>';
             content.appendChild(header);
 
@@ -2845,6 +3046,11 @@ async function openPersonDetail(cluster) {
                 const container = document.createElement('div');
                 container.className = 'thumb-container skeleton';
                 container.dataset.phash = h;
+                if (item.is_new) {
+                    container.style.outline = '3px solid #ff4a6e';
+                    container.style.outlineOffset = '-3px';
+                    container.style.zIndex = '1';
+                }
                 if (item.type === 'video') {
                     const badge = document.createElement('div');
                     badge.className = 'video-badge';
@@ -2914,6 +3120,191 @@ async function downloadSinglePhoto(path) {
     }
     window.location.href = '/api/photos/download?p=' + encodeURIComponent(path);
 }
+
+// ─── Upload ───
+(function() {
+    const modal = document.getElementById('upload-modal');
+    const drop = document.getElementById('upload-drop');
+    const fileInput = document.getElementById('upload-file-input');
+    const fileList = document.getElementById('upload-filelist');
+    const summary = document.getElementById('upload-summary');
+    const statsEl = document.getElementById('upload-stats');
+    const goBtn = document.getElementById('upload-go');
+
+    let files = [];       // {file, status, el, barFill}
+    let uploading = false;
+    let anySuccess = false;
+
+    document.getElementById('upload-btn').addEventListener('click', () => {
+        modal.classList.add('active');
+    });
+
+    document.getElementById('upload-close').addEventListener('click', closeModal);
+    modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
+
+    function closeModal() {
+        if (uploading) {
+            if (!confirm('Upload in progress. Close anyway?')) return;
+        }
+        modal.classList.remove('active');
+        if (anySuccess) {
+            window.location.reload();
+        }
+        // Reset state
+        files = [];
+        fileList.innerHTML = '';
+        summary.style.display = 'none';
+        anySuccess = false;
+    }
+
+    // Drag & drop
+    drop.addEventListener('dragover', (e) => { e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+    drop.addEventListener('drop', (e) => {
+        e.preventDefault();
+        drop.classList.remove('dragover');
+        addFiles(e.dataTransfer.files);
+    });
+
+    // Click to browse
+    drop.addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+        if (fileInput.files.length) addFiles(fileInput.files);
+        fileInput.value = '';
+    });
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' B';
+        if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+        return (bytes/(1024*1024)).toFixed(1) + ' MB';
+    }
+
+    function addFiles(newFiles) {
+        for (const f of newFiles) {
+            const row = document.createElement('div');
+            row.className = 'upload-file';
+            row.innerHTML = `
+                <div style="flex:1;min-width:0">
+                    <div class="upload-file-name">${f.name}</div>
+                    <div class="upload-file-bar"><div class="upload-file-bar-fill"></div></div>
+                </div>
+                <div class="upload-file-size">${formatSize(f.size)}</div>
+                <div class="upload-file-status waiting">waiting</div>
+            `;
+            fileList.appendChild(row);
+            files.push({
+                file: f,
+                status: 'waiting',
+                el: row,
+                barFill: row.querySelector('.upload-file-bar-fill'),
+                statusEl: row.querySelector('.upload-file-status')
+            });
+        }
+        updateSummary();
+        summary.style.display = 'flex';
+    }
+
+    function updateSummary() {
+        let done = 0, dup = 0, err = 0, remaining = 0;
+        for (const f of files) {
+            if (f.status === 'done') done++;
+            else if (f.status === 'duplicate') dup++;
+            else if (f.status === 'error') err++;
+            else remaining++;
+        }
+        let parts = [];
+        if (done) parts.push(`<span class="stat-ok">${done} uploaded</span>`);
+        if (dup) parts.push(`<span class="stat-dup">${dup} duplicate${dup>1?'s':''}</span>`);
+        if (err) parts.push(`<span class="stat-err">${err} error${err>1?'s':''}</span>`);
+        if (remaining) parts.push(`<span>${remaining} remaining</span>`);
+        statsEl.innerHTML = parts.join('');
+        goBtn.disabled = remaining === 0 || uploading;
+    }
+
+    goBtn.addEventListener('click', startUpload);
+
+    async function startUpload() {
+        if (uploading) return;
+        uploading = true;
+        goBtn.disabled = true;
+        goBtn.textContent = 'Uploading…';
+
+        for (const item of files) {
+            if (item.status !== 'waiting') continue;
+            item.status = 'uploading';
+            item.statusEl.className = 'upload-file-status uploading';
+            item.statusEl.textContent = '0%';
+
+            try {
+                const result = await uploadOne(item);
+                if (result.status === 'ok') {
+                    item.status = 'done';
+                    item.statusEl.className = 'upload-file-status done';
+                    item.statusEl.textContent = 'done';
+                    item.barFill.style.width = '100%';
+                    item.barFill.style.background = '#34d399';
+                    anySuccess = true;
+                } else if (result.status === 'skipped') {
+                    item.status = 'duplicate';
+                    item.statusEl.className = 'upload-file-status duplicate';
+                    item.statusEl.textContent = 'duplicate';
+                    item.barFill.style.width = '100%';
+                    item.barFill.style.background = '#fbbf24';
+                } else {
+                    throw new Error(result.error || 'Unknown error');
+                }
+            } catch (e) {
+                item.status = 'error';
+                item.statusEl.className = 'upload-file-status error';
+                item.statusEl.textContent = 'error';
+                item.barFill.style.background = '#f87171';
+            }
+            updateSummary();
+        }
+
+        uploading = false;
+        goBtn.textContent = 'Upload';
+        updateSummary();
+    }
+
+    function uploadOne(item) {
+        return new Promise((resolve, reject) => {
+            const xhr = new XMLHttpRequest();
+            const fd = new FormData();
+            fd.append('file', item.file);
+
+            xhr.upload.addEventListener('progress', (e) => {
+                if (e.lengthComputable) {
+                    const pct = Math.round((e.loaded / e.total) * 100);
+                    item.barFill.style.width = pct + '%';
+                    item.statusEl.textContent = pct + '%';
+                }
+            });
+
+            xhr.addEventListener('load', () => {
+                try {
+                    const data = JSON.parse(xhr.responseText);
+                    if (xhr.status >= 200 && xhr.status < 300) {
+                        resolve(data);
+                    } else if (xhr.status === 200) {
+                        resolve(data);
+                    } else {
+                        reject(new Error(data.error || `HTTP ${xhr.status}`));
+                    }
+                } catch (e) {
+                    reject(new Error(`HTTP ${xhr.status}`));
+                }
+            });
+
+            xhr.addEventListener('error', () => reject(new Error('Network error')));
+            xhr.addEventListener('timeout', () => reject(new Error('Timeout')));
+            xhr.timeout = 300000; // 5 min per file
+
+            xhr.open('POST', '/api/upload');
+            xhr.send(fd);
+        });
+    }
+})();
 
 // ─── Init ───
 buildGallery();

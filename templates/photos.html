@@ -2253,12 +2253,18 @@ lightbox.addEventListener('touchend', (e) => {
         // Clear pending single-tap
         clearTimeout(_lbTapTimer);
         if (now - _lbLastTap < 300 && Math.abs(tx - _lbLastTapX) < 30 && Math.abs(ty - _lbLastTapY) < 30) {
-            // Double tap — toggle zoom
-            if (_lbZoomScale > 1) { _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0; }
-            else {
-                _lbZoomScale = 2.5;
-                _lbZoomX = (window.innerWidth / 2 - tx) * 1.5;
-                _lbZoomY = (window.innerHeight / 2 - ty) * 1.5;
+            // Double tap — step through zoom levels
+            const _zoomSteps = [1, 2, 3.5, 5];
+            const nextStep = _zoomSteps.find(s => s > _lbZoomScale + 0.1);
+            if (nextStep) {
+                const prevScale = _lbZoomScale;
+                _lbZoomScale = nextStep;
+                // Pan toward tap point proportionally to zoom increase
+                const factor = 1 - prevScale / nextStep;
+                _lbZoomX += (window.innerWidth / 2 - tx) * factor * nextStep;
+                _lbZoomY += (window.innerHeight / 2 - ty) * factor * nextStep;
+            } else {
+                _lbZoomScale = 1; _lbZoomX = 0; _lbZoomY = 0;
             }
             _lbApplyZoom(true);
             _lbLastTap = 0;

@@ -649,11 +649,21 @@ def photos_page():
         "inline": inline_items,
     })
     first_thumbs = [item["thumb"] for item in items[:60] if item.get("thumb")]
-    resp = make_response(render_template("photos.html",
+    html = render_template("photos.html",
         photo_data_json=photo_data_json,
         first_thumbs=first_thumbs,
-    ))
-    resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    )
+    # Gzip the response — with all months inlined the HTML is large
+    import gzip as _gz
+    if "gzip" in request.headers.get("Accept-Encoding", ""):
+        compressed = _gz.compress(html.encode("utf-8"), compresslevel=4)
+        resp = Response(compressed, mimetype="text/html; charset=utf-8", headers={
+            "Content-Encoding": "gzip",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        })
+    else:
+        resp = make_response(html)
+        resp.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     return resp
 
 
@@ -1354,87 +1364,80 @@ def _startup_preload():
 
 
 def _warm_all_thumbs(items):
-    """Generate every missing thumbnail and load all into RAM cache.
-    Processes newest photos first so recent months are ready fastest.
+    """Pre-generate and RAM-cache ALL thumbnail tiers so nothing is ever on-demand.
+    Tiers: 475px grid, 800px HQ (lightbox), 2048px preview (lightbox sharp).
+    Grid + HQ go into RAM. Preview stays on disk (too large for RAM but pre-generated).
     """
-    # First: load already-existing thumbs into RAM cache
-    existing_loaded = 0
-    for item in items:
-        url = item.get("thumb", "")
-        if not url:
-            continue
-        name = url.rsplit("/", 1)[-1]
-        path = os.path.join(_THUMB_DIR, name)
-        if os.path.exists(path) and (_THUMB_DIR, name) not in _thumb_cache:
-            _read_thumb(_THUMB_DIR, name)
-            existing_loaded += 1
-    if existing_loaded:
-        print(f"[warmer] Loaded {existing_loaded} existing thumbs into RAM.")
+    total = len(items)
 
-    # Also warm HQ thumbs into RAM so lightbox opens instantly
-    hq_loaded = 0
+    # ── Phase 1: Load every existing thumb + HQ into RAM ──
+    thumb_loaded = hq_loaded = 0
     for item in items:
         url = item.get("thumb", "")
         if not url:
             continue
         name = url.rsplit("/", 1)[-1]
-        hq_path = os.path.join(_THUMB_HQ_DIR, name)
-        if os.path.exists(hq_path) and (_THUMB_HQ_DIR, name) not in _thumb_cache:
+        if os.path.exists(os.path.join(_THUMB_DIR, name)) and (_THUMB_DIR, name) not in _thumb_cache:
+            _read_thumb(_THUMB_DIR, name)
+            thumb_loaded += 1
+        if os.path.exists(os.path.join(_THUMB_HQ_DIR, name)) and (_THUMB_HQ_DIR, name) not in _thumb_cache:
             _read_thumb(_THUMB_HQ_DIR, name)
             hq_loaded += 1
-    if hq_loaded:
-        print(f"[warmer] Loaded {hq_loaded} HQ thumbs into RAM.")
+    print(f"[warmer] RAM loaded: {thumb_loaded} thumbs, {hq_loaded} HQ thumbs.")
 
     _build_landscape_index()
-    _summary_cache["data"] = None  # force covers to use landscape data
+    _summary_cache["data"] = None
 
-    # Then: generate missing thumbs and add them to RAM too
-    missing = []
+    # ── Phase 2: Generate ALL missing tiers (475 + 800 + 2048) ──
+    jobs = []
     for item in items:
         orig = item.get("path", "")
-        if not orig:
-            continue
         url = item.get("thumb", "")
-        if not url:
+        if not orig or not url:
             continue
         name = url.rsplit("/", 1)[-1]
-        if not os.path.exists(os.path.join(_THUMB_DIR, name)):
-            missing.append(item)
+        need_thumb = not os.path.exists(os.path.join(_THUMB_DIR, name))
+        need_hq = not os.path.exists(os.path.join(_THUMB_HQ_DIR, name))
+        need_preview = not os.path.exists(os.path.join(_THUMB_PREVIEW_DIR, name))
+        if need_thumb or need_hq or need_preview:
+            jobs.append((item, name, need_thumb, need_hq, need_preview))
 
-    if not missing:
-        print(f"[warmer] All {len(items)} thumbs on disk and in RAM.")
+    if not jobs:
+        print(f"[warmer] All {total} photos — every tier on disk and in RAM. Ready to serve.")
         return
 
-    print(f"[warmer] Generating {len(missing)} missing thumbs...")
+    print(f"[warmer] Generating missing tiers for {len(jobs)} photos (16 workers)...")
 
-    def _gen(item):
+    def _gen(args):
+        item, name, need_thumb, need_hq, need_preview = args
         orig = item["path"]
         if not os.path.isfile(orig):
             return
         ext = os.path.splitext(orig)[1].lower()
         is_video = ext in VIDEO_EXTS
-        url = item["thumb"]
-        name = url.rsplit("/", 1)[-1]
-        # Generate both grid thumb and HQ thumb so lightbox is instant
-        out = os.path.join(_THUMB_DIR, name)
-        if not os.path.exists(out):
+        if need_thumb:
+            out = os.path.join(_THUMB_DIR, name)
             if gen_thumb(orig, out, 475, 3, is_video):
                 _read_thumb(_THUMB_DIR, name)
-        out_hq = os.path.join(_THUMB_HQ_DIR, name)
-        if not os.path.exists(out_hq):
-            if gen_thumb(orig, out_hq, 800, 2, is_video):
+        if need_hq:
+            out = os.path.join(_THUMB_HQ_DIR, name)
+            if gen_thumb(orig, out, 800, 2, is_video):
                 _read_thumb(_THUMB_HQ_DIR, name)
+        if need_preview:
+            out = os.path.join(_THUMB_PREVIEW_DIR, name)
+            gen_thumb(orig, out, 2048, 1, is_video)
+            # Preview stays on disk only — too large for RAM
 
     done = 0
-    with ThreadPoolExecutor(max_workers=8) as pool:
-        for _ in pool.map(_gen, missing):
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        for _ in pool.map(_gen, jobs):
             done += 1
-            if done % 1000 == 0:
-                print(f"[warmer] {done}/{len(missing)} thumbs done")
+            if done % 500 == 0:
+                print(f"[warmer] {done}/{len(jobs)} photos done (all tiers)")
 
-    print(f"[warmer] Done — all thumbs on disk and in RAM.")
+    print(f"[warmer] Done — {total} photos, all 3 tiers on disk, grid+HQ in RAM. Zero on-demand generation.")
     _build_landscape_index()
-    _summary_cache["data"] = None  # force re-generation with landscape data
+    _summary_cache["data"] = None
 
 
 def _warm_recent_months(items, months=3):
@@ -1552,13 +1555,16 @@ def _auto_scan_loop():
                             "type": "video" if is_video else "image",
                         }
                         new_entries.append(entry)
-                        # Generate thumbnails immediately
+                        # Generate ALL 3 tiers immediately so nothing is on-demand
                         thumb_path = os.path.join(THUMB_DIR, thumb_name)
                         hq_path = os.path.join(THUMB_HQ_DIR, thumb_name)
+                        preview_path = os.path.join(_THUMB_PREVIEW_DIR, thumb_name)
                         if not os.path.exists(thumb_path):
                             gen_thumb(filepath, thumb_path, 475, 3, is_video)
                         if not os.path.exists(hq_path):
                             gen_thumb(filepath, hq_path, 800, 2, is_video)
+                        if not os.path.exists(preview_path):
+                            gen_thumb(filepath, preview_path, 2048, 1, is_video)
                     except Exception as e:
                         print(f"[auto-scan] Failed to index {filepath}: {e}")
 

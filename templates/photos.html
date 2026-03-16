@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>PROMETHEON PHOTOS</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#04070d">
@@ -19,7 +21,7 @@
                 colors: {
                     bg:     { DEFAULT: '#04070d', panel: '#070c16', tertiary: '#0a1220' },
                     accent: { DEFAULT: '#6495ed', bright: '#9ab5f5', dim: '#111d40' },
-                    term:   { white: '#b0cfe0', bright: '#ddf0ff', gray: '#2d4a60', dark: '#152030' },
+                    term:   { white: '#e8f0f8', bright: '#ddf0ff', gray: '#2d4a60', dark: '#152030' },
                     border: '#0c1e30',
                 },
                 fontFamily: {
@@ -197,6 +199,31 @@
             padding: 40px 24px 24px;
             padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
             background: linear-gradient(to top, rgba(0,0,0,0.7) 0%, transparent 100%);
+            transition: bottom 0.2s ease;
+        }
+        .lb-video-active .lb-bottom {
+            display: none;
+        }
+        .lb-video-active .lb-top-left {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+        .lb-video-active .lb-top-date {
+            display: flex;
+            flex-direction: column;
+            gap: 1px;
+        }
+        .lb-video-active .lb-top-date .lb-date-text {
+            color: #fff;
+            font-size: 13px;
+            font-weight: 500;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+        }
+        .lb-video-active .lb-top-date .lb-counter-text {
+            color: rgba(255,255,255,0.5);
+            font-size: 11px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
         }
         .lb-info {
             display: flex;
@@ -293,8 +320,8 @@
         }
         #lb-media-wrap img,
         #lb-media-wrap video {
-            max-width: 100vw;
-            max-height: 100vh;
+            width: 100%;
+            height: 100%;
             object-fit: contain;
         }
         #lb-media-wrap img.lb-zoomed {
@@ -1184,6 +1211,58 @@
             transition: opacity 0.2s;
         }
         .upload-go:disabled { opacity: 0.4; cursor: default; }
+
+        /* ─── Mobile header: two-row layout ─── */
+        @media (max-width: 768px) {
+            #main-header .header-row {
+                flex-wrap: wrap;
+                gap: 8px;
+                padding-left: 10px;
+                padding-right: 10px;
+            }
+            #photos-banner-wrap { display: none !important; }
+            #photos-title-mobile { display: flex !important; }
+            #search-wrap {
+                width: 100% !important;
+                order: 10;
+                margin-left: 0 !important;
+            }
+            #search-wrap input { font-size: 16px; }
+            .mobile-toolbar {
+                display: flex !important;
+                order: 9;
+                width: 100%;
+                justify-content: space-between;
+                align-items: center;
+                padding-top: 2px;
+            }
+            .desktop-actions { display: none !important; }
+            .mobile-action-btn {
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                width: 36px;
+                height: 36px;
+                border-radius: 8px;
+                border: 1px solid #0c1e30;
+                color: #2d4a60;
+                transition: all 0.15s;
+            }
+            .mobile-action-btn:hover, .mobile-action-btn:active {
+                color: #6495ed;
+                border-color: rgba(100,149,237,0.3);
+            }
+            .mobile-action-btn svg { width: 16px; height: 16px; }
+            #scroll-indicator {
+                right: 10px !important;
+                font-size: 24px !important;
+                padding: 10px 16px !important;
+            }
+        }
+        @media (min-width: 769px) {
+            #photos-title-mobile { display: none !important; }
+            .mobile-toolbar { display: none !important; }
+        }
     </style>
 </head>
 <body class="text-term-white font-mono min-h-screen" style="-webkit-text-size-adjust:100%">
@@ -1191,49 +1270,85 @@
 
 <!-- Top bar -->
 <header id="main-header" class="sticky top-0 z-50" style="background: #04070d; box-shadow: 0 1px 0 #0c1e30;">
-    <!-- Row 1: brand + search -->
-    <div class="flex items-center gap-3 px-3 sm:px-4 lg:px-6 pt-3 pb-2 lg:pb-3" style="padding-top: calc(12px + env(safe-area-inset-top, 0px));">
-        <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1 shrink-0" title="Home">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
-        </a>
-        <div class="flex items-baseline gap-2 shrink-0">
-            <span class="text-accent-bright font-bold text-[16px] sm:text-[18px] lg:text-[20px] tracking-[0.25em]" style="font-family:'Rajdhani',sans-serif;font-weight:700;text-transform:uppercase">PHOTOS</span>
+    <div class="header-row flex items-center gap-4 px-3 sm:px-5 lg:px-8 py-2.5" style="padding-top: calc(10px + env(safe-area-inset-top, 0px));-webkit-overflow-scrolling:touch;">
+        <!-- Left: back + title -->
+        <div class="flex items-center gap-3 shrink-0">
+            <a href="/" class="text-term-gray hover:text-accent-bright transition-colors p-1 shrink-0" title="Home">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+            </a>
+            <div id="photos-banner-wrap" style="overflow:hidden;flex-shrink:0">
+                <div id="photos-banner" style="font-family:'JetBrains Mono',monospace;font-size:18px;line-height:1.15;white-space:pre;color:#6495ed;text-shadow:0 0 6px rgba(100,149,237,0.9),0 0 18px rgba(100,149,237,0.35),0 0 40px rgba(100,149,237,0.12);transform-origin:top left">██████╗ ██╗  ██╗ ██████╗ ████████╗ ██████╗ ███████╗
+██╔══██╗██║  ██║██╔═══██╗╔══██╔══╝██╔═══██╗██╔════╝
+██████╔╝███████║██║   ██║   ██║   ██║   ██║███████╗
+██╔═══╝ ██╔══██║██║   ██║   ██║   ██║   ██║╔════██║
+██║     ██║  ██║╚██████╔╝   ██║   ╚██████╔╝███████║
+╚═╝     ╚═╝  ╚═╝ ╚═════╝    ╚═╝    ╚═════╝ ╚══════╝</div>
+            </div>
+            <span id="photos-title-mobile" class="items-center gap-2" style="display:none">
+                <span style="font-family:'Rajdhani',sans-serif;font-size:18px;font-weight:700;letter-spacing:0.15em;text-transform:uppercase;color:#6495ed;text-shadow:0 0 12px rgba(100,149,237,0.4)">PHOTOS</span>
+                <span class="text-term-dark text-[11px]" id="photo-count-mobile"></span>
+            </span>
             <span class="text-term-dark text-[11px] sm:text-[13px] hidden sm:inline" id="photo-count"></span>
         </div>
-        <div class="relative flex-1 min-w-0 max-w-xs ml-auto" id="search-wrap">
-            <input id="search-input" type="text" placeholder="Search..."
-                   class="w-full bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
-                   autocomplete="off" spellcheck="false" style="font-size:16px;">
-            <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-            <div id="search-suggestions" class="hidden"></div>
-        </div>
-    </div>
-    <!-- Row 2: view tabs + actions -->
-    <div class="flex items-center gap-2 px-3 sm:px-4 lg:px-6 pb-2.5 overflow-x-auto no-scrollbar" style="-webkit-overflow-scrolling:touch;">
-        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] sm:text-[13px] font-medium shrink-0">
+        <!-- View tabs -->
+        <div class="flex rounded-lg border border-border/80 overflow-hidden text-[11px] sm:text-[13px] font-medium shrink-0 ml-2" id="view-tabs">
             <button id="btn-year"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('year')">Year</button>
             <button id="btn-month" class="view-tab px-3 sm:px-4 py-1.5 transition-all border-x border-border/80" onclick="setView('month')">Month</button>
             <button id="btn-grid"  class="view-tab px-3 sm:px-4 py-1.5 transition-all" onclick="setView('grid')">Grid</button>
         </div>
         <div class="flex-1"></div>
-        <button id="people-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
-            <span class="hidden sm:inline">People</span>
-        </button>
-        <button id="select-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
-            <span class="hidden sm:inline">Select</span>
-        </button>
-        <button id="trash-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
-            <span class="hidden sm:inline">Trash</span>
-        </button>
-        <button id="upload-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            <span class="hidden sm:inline">Upload</span>
-        </button>
+        <!-- Desktop: actions + search -->
+        <div class="desktop-actions flex items-center gap-2 shrink-0">
+            <button id="people-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                <span class="hidden sm:inline">People</span>
+            </button>
+            <button id="select-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
+                <span class="hidden sm:inline">Select</span>
+            </button>
+            <button id="trash-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                <span class="hidden sm:inline">Trash</span>
+            </button>
+            <button id="upload-btn" class="text-term-gray hover:text-accent text-[11px] sm:text-[13px] px-2.5 sm:px-3 py-1.5 rounded-lg border border-border/80 hover:border-accent-dim transition-all flex items-center gap-1.5 shrink-0">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                <span class="hidden sm:inline">Upload</span>
+            </button>
+            <div class="relative min-w-0 shrink ml-1" style="width:200px" id="search-wrap">
+                <input id="search-input" type="text" placeholder="Search..."
+                       class="w-full bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
+                       autocomplete="off" spellcheck="false" style="font-size:16px;">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+                <div id="search-suggestions" class="hidden"></div>
+            </div>
+        </div>
+        <!-- Mobile: action row with icons + search -->
+        <div class="mobile-toolbar" style="display:none">
+            <div class="flex items-center gap-1.5">
+                <button class="mobile-action-btn" onclick="document.getElementById('people-btn').click()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4-4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></svg>
+                </button>
+                <button class="mobile-action-btn" onclick="document.getElementById('select-btn').click()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><path d="M3 17l2.5 2.5L10 14"/></svg>
+                </button>
+                <button class="mobile-action-btn" onclick="document.getElementById('trash-btn').click()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                </button>
+                <button class="mobile-action-btn" onclick="document.getElementById('upload-btn').click()">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </button>
+            </div>
+            <div class="relative flex-1 ml-2">
+                <input id="search-input-m" type="text" placeholder="Search..."
+                       class="w-full bg-bg-tertiary border border-border/70 rounded-lg pl-8 pr-3 py-1.5 text-[13px] text-term-white placeholder-term-gray focus:border-accent-dim focus:outline-none transition-all"
+                       autocomplete="off" spellcheck="false" style="font-size:16px;">
+                <svg class="absolute left-2.5 top-1/2 -translate-y-1/2 text-term-gray pointer-events-none" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+            </div>
+        </div>
     </div>
 </header>
+
 
 <!-- Gallery (photo grid mode) -->
 <main id="gallery" class="px-2 md:px-3 pb-12"></main>
@@ -1259,6 +1374,10 @@
         <div class="lb-top-left">
             <div class="lb-btn" id="lb-close" title="Close">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+            </div>
+            <div class="lb-top-date" id="lb-top-date" style="display:none">
+                <span class="lb-date-text" id="lb-top-date-text"></span>
+                <span class="lb-counter-text" id="lb-top-counter-text"></span>
             </div>
         </div>
         <div class="lb-top-right">
@@ -1846,12 +1965,18 @@ function showLbItem(idx) {
     lbIndex = idx;
     const item = items[idx];
     lbCounter.textContent = (idx + 1) + ' of ' + items.length;
-    if (item.date) {
-        const d = new Date(item.date * 1000);
-        lbDate.textContent = d.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-    } else { lbDate.textContent = ''; }
+    const dateStr = item.date ? new Date(item.date * 1000).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' }) : '';
+    lbDate.textContent = dateStr;
+    // Also set top-bar date for video mode
+    const topDate = document.getElementById('lb-top-date');
+    const topDateText = document.getElementById('lb-top-date-text');
+    const topCounterText = document.getElementById('lb-top-counter-text');
+    topDateText.textContent = dateStr;
+    topCounterText.textContent = (idx + 1) + ' of ' + items.length;
+    topDate.style.display = item.type === 'video' ? '' : 'none';
     lbFilename.textContent = '';
     _lbShowUi();
+    clearTimeout(showLbItem._upgradeTimer);
     lbMediaWrap.innerHTML = '';
     const bgWrap = document.createElement('div');
     bgWrap.className = 'lb-thumb-bg';
@@ -1863,49 +1988,68 @@ function showLbItem(idx) {
     loading.className = 'lb-loading';
     loading.textContent = 'Loading\u2026';
     lbMediaWrap.appendChild(loading);
+    lightbox.classList.toggle('lb-video-active', item.type === 'video');
     if (item.type === 'video') {
         const video = document.createElement('video');
         video.poster = item.thumb_hq || item.thumb || '';
-        video.controls = true;
         video.setAttribute('playsinline', '');
-        video.preload = 'auto';
+        video.preload = 'none';
         video.style.cssText = 'position:relative;z-index:1;max-width:100vw;max-height:100vh';
-        // Show poster immediately — hide loading/blur once poster dimensions known
+        const videoSrc = '/media' + encodeURI(item.path || '');
+        // Don't load video until user taps play — show poster only
         video.onloadedmetadata = () => { loading.remove(); bgWrap.remove(); };
         video.onerror = () => { loading.textContent = 'Failed to load video'; };
+        // On poster load, hide loading spinner
+        const posterImg = new Image();
+        posterImg.onload = () => { loading.remove(); };
+        posterImg.src = video.poster;
+        video.addEventListener('play', function onFirstPlay() {
+            video.removeEventListener('play', onFirstPlay);
+            if (!video.src) { video.src = videoSrc; video.play(); }
+        });
+        video.controls = true;
         lbMediaWrap.appendChild(video);
-        // Set src after appending so poster shows first
-        video.src = '/media' + encodeURI(item.path || '');
+        // On mobile, don't preload video at all; on desktop, set src for smoother playback
+        if (window.innerWidth > 768) { video.src = videoSrc; video.preload = 'metadata'; }
     } else {
         const img = document.createElement('img');
         img.style.cssText = 'position:relative;z-index:1';
         const thumbHash = (item.thumb || '').split('/').pop();
         const previewUrl = thumbHash ? ('/static/thumbs_preview/' + thumbHash) : '';
         const fullUrl = item.path ? ('/media' + encodeURI(item.path)) : '';
-        // Stage 1: show HQ thumb immediately
-        img.src = item.thumb_hq || item.thumb || '';
-        img.onload = function onHqLoad() {
+        const isMobile = window.innerWidth <= 768;
+
+        // Instant show: grab the already-decoded grid thumbnail if available
+        const gridThumb = document.querySelector(`.thumb-container[data-idx="${idx}"] img`);
+        if (gridThumb && gridThumb.complete && gridThumb.naturalWidth > 0) {
+            img.src = gridThumb.src;
             loading.remove(); bgWrap.style.display = 'none';
-            // Stage 2: load 2048px preview, swap when ready
-            if (previewUrl) {
-                const preview = new Image();
-                preview.onload = () => {
-                    if (img.parentNode) img.src = previewUrl;
-                    // Stage 3: preload full original for zoom
-                    if (fullUrl) {
-                        const full = new Image();
-                        full.onload = () => { img.dataset.fullSrc = fullUrl; };
-                        full.src = fullUrl;
-                    }
-                };
-                preview.src = previewUrl;
-            } else if (fullUrl) {
-                const full = new Image();
-                full.onload = () => { if (img.parentNode) img.src = fullUrl; };
-                full.src = fullUrl;
-            }
-            img.onload = null;
-        };
+        } else {
+            img.src = item.thumb || '';
+            img.onload = function() { loading.remove(); bgWrap.style.display = 'none'; img.onload = null; };
+        }
+
+        // Progressive upgrade: thumb → HQ → preview (cached 2048px)
+        // Full-res only on double-tap (too slow to load every time)
+        function upgradeToHq() {
+            if (!item.thumb_hq || !img.parentNode) { upgradeToPreview(); return; }
+            const hq = new Image();
+            hq.onload = () => { if (img.parentNode) { img.src = item.thumb_hq; upgradeToPreview(); } };
+            hq.onerror = upgradeToPreview;
+            hq.src = item.thumb_hq;
+        }
+        function upgradeToPreview() {
+            if (!previewUrl || !img.parentNode) return;
+            const preview = new Image();
+            preview.onload = () => { if (img.parentNode) img.src = previewUrl; };
+            preview.onerror = () => {};
+            preview.src = previewUrl;
+        }
+
+        // Both mobile and desktop: upgrade through cached tiers immediately
+        // HQ thumb loads fast (800px cached), preview loads fast (2048px cached)
+        upgradeToHq();
+        img.dataset.fullSrc = fullUrl;
         img.onerror = () => { loading.textContent = 'Failed to load'; };
         // Double-tap or pinch to swap to full original immediately
         img.addEventListener('dblclick', () => {
@@ -2708,6 +2852,23 @@ document.getElementById('sel-download-btn').addEventListener('click', () => {
     if (!paths.length) return;
 
     const btn = document.getElementById('sel-download-btn');
+
+    // Native app: use downloadSinglePhoto which saves to Camera Roll
+    if (window.__IS_NATIVE_APP || (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.savePhoto)) {
+        btn.disabled = true;
+        let done = 0;
+        btn.textContent = `0 / ${paths.length}`;
+        (async () => {
+            for (const p of paths) {
+                try { await downloadSinglePhoto(p); } catch(e) {}
+                btn.textContent = `${++done} / ${paths.length}`;
+            }
+            btn.textContent = 'Download';
+            btn.disabled = false;
+        })();
+        return;
+    }
+
     const isMobile = navigator.maxTouchPoints > 0 && navigator.share;
 
     if (!isMobile) {
@@ -2715,35 +2876,25 @@ document.getElementById('sel-download-btn').addEventListener('click', () => {
         return;
     }
 
-    // Check if all files are already cached
-    const cached = paths.map(p => _shareCache.get(p));
-    if (cached.every(Boolean)) {
-        navigator.share({ files: cached }).catch(() => {});
-        return;
-    }
-
-    // Fetch files first, then prompt user to tap again (fresh gesture for iOS activation)
+    // Mobile Safari: share one at a time
     btn.disabled = true;
-    let done = cached.filter(Boolean).length;
-    btn.textContent = `${done} / ${paths.length}`;
-    Promise.all(paths.map(async (p, i) => {
-        if (cached[i]) return cached[i];
-        const r = await fetch(_shareUrl(p));
-        if (!r.ok) throw new Error(r.status);
-        const b = await r.blob();
-        const mime = _isVideo(p) ? (b.type || 'video/mp4') : 'image/jpeg';
-        const f = new File([b], _shareFilename(p), { type: mime });
-        _shareCache.set(p, f);
-        btn.textContent = `${++done} / ${paths.length}`;
-        return f;
-    })).then(() => {
-        btn.textContent = 'Save to Photos';
-        btn.disabled = false;
-        // Next tap will hit the cached path above and share instantly
-    }).catch(() => {
+    let done = 0;
+    btn.textContent = `0 / ${paths.length}`;
+    (async () => {
+        for (const p of paths) {
+            try {
+                const r = await fetch(_shareUrl(p));
+                if (!r.ok) continue;
+                const b = await r.blob();
+                const mime = _isVideo(p) ? (b.type || 'video/mp4') : 'image/jpeg';
+                const f = new File([b], _shareFilename(p), { type: mime });
+                await navigator.share({ files: [f] }).catch(() => {});
+            } catch(e) {}
+            btn.textContent = `${++done} / ${paths.length}`;
+        }
         btn.textContent = 'Download';
         btn.disabled = false;
-    });
+    })();
 });
 
 document.getElementById('sel-name-btn').addEventListener('click', () => {
@@ -3461,19 +3612,15 @@ function _shareFilename(path) {
 }
 
 async function downloadSinglePhoto(path) {
-    const isMobile = navigator.maxTouchPoints > 0;
-    if (isMobile && navigator.share) {
-        try {
-            const r = await fetch(_shareUrl(path));
-            if (!r.ok) throw new Error(`${r.status}`);
-            const b = await r.blob();
-            const mime = _isVideo(path) ? (b.type || 'video/mp4') : 'image/jpeg';
-            const file = new File([b], _shareFilename(path), { type: mime });
-            await navigator.share({ files: [file] });
-            return;
-        } catch (e) { if (e.name === 'AbortError') return; }
-    }
-    window.location.href = '/api/photos/download?p=' + encodeURIComponent(path);
+    // On mobile: use a hidden link with download attribute to avoid loading into JS memory
+    const url = '/api/photos/download?p=' + encodeURIComponent(path);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = _shareFilename(path);
+    a.style.display = 'none';
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(() => a.remove(), 1000);
 }
 
 // ─── Upload ───
@@ -3689,6 +3836,56 @@ if ('serviceWorker' in navigator) {
         }
     }).catch(() => {});
 }
+
+/* Scale ASCII PHOTOS banner to fit */
+(function(){
+    const wrap = document.getElementById('photos-banner-wrap');
+    const ban  = document.getElementById('photos-banner');
+    if (!wrap || !ban) return;
+    function fit(){
+        ban.style.transform = 'none';
+        wrap.style.width = 'auto';
+        wrap.style.height = 'auto';
+        const h = ban.offsetHeight;
+        const target = 28;
+        if (h > target) {
+            const s = target / h;
+            ban.style.transform = 'scale(' + s + ')';
+            wrap.style.width = (ban.offsetWidth * s) + 'px';
+            wrap.style.height = target + 'px';
+        }
+    }
+    fit();
+    window.addEventListener('resize', fit);
+    document.fonts && document.fonts.ready.then(fit);
+})();
+
+
+// ─── Mobile search sync ───
+(function() {
+    const mobileInput = document.getElementById('search-input-m');
+    const desktopInput = document.getElementById('search-input');
+    const mobileCount = document.getElementById('photo-count-mobile');
+    if (mobileInput && desktopInput) {
+        mobileInput.addEventListener('input', function() {
+            desktopInput.value = this.value;
+            desktopInput.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+        mobileInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') {
+                desktopInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+            }
+        });
+        desktopInput.addEventListener('input', function() {
+            mobileInput.value = this.value;
+        });
+    }
+    // Sync photo count to mobile
+    const desktopCount = document.getElementById('photo-count');
+    if (desktopCount && mobileCount) {
+        new MutationObserver(() => { mobileCount.textContent = desktopCount.textContent; }).observe(desktopCount, { childList: true, characterData: true, subtree: true });
+    }
+})();
 </script>
 
 </body>

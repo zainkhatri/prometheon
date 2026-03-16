@@ -1,6 +1,7 @@
 """Safe command executor for PROMETHEON. Blocks destructive commands, enforces allowlist.
 Commands execute directly on the NAS (no SSH — the app runs locally)."""
 
+import os
 import shlex
 import subprocess
 import re
@@ -51,6 +52,58 @@ BLOCKED_PATTERNS = [
 
 COMMAND_TIMEOUT = 30
 
+# ─── Minecraft Server (MORDOR) ───
+MC_SERVER_DIR = "/srv/mergerfs/PROMETHEUS/MORDOR"
+MC_JAVA = "/home/zain/jdk8u432-b06-jre/bin/java"
+MC_JAR = "forge-1.7.10-10.13.4.1614-1.7.10-universal.jar"
+
+
+def minecraft_server(action: str) -> dict:
+    """Start or stop the MORDOR Minecraft server."""
+    import signal
+
+    PLAYIT = "/home/zain/playit"
+    MC_ADDRESS = "safety-melbourne.gl.joinmc.link"
+
+    if action == "on":
+        # Check if already running
+        check = subprocess.run(["pgrep", "-f", MC_JAR], capture_output=True)
+        if check.returncode == 0:
+            return {"stdout": f"Server is already running.\nConnect: {MC_ADDRESS}", "stderr": "", "returncode": 0, "blocked": False}
+        proc = subprocess.Popen(
+            [MC_JAVA, "-Xms2G", "-Xmx4G", "-XX:+UseG1GC",
+             "-Dsun.zip.disableMemoryMapping=true",
+             "-jar", MC_JAR, "nogui"],
+            cwd=MC_SERVER_DIR,
+            stdout=open(f"{MC_SERVER_DIR}/server.log", "w"),
+            stderr=subprocess.STDOUT,
+            preexec_fn=os.setpgrp,
+        )
+        # Start playit tunnel if not running
+        if subprocess.run(["pgrep", "-f", "playit"], capture_output=True).returncode != 0:
+            subprocess.Popen(
+                [PLAYIT, "--secret_path", "/home/zain/.config/playit_gg/playit.toml", "-s"],
+                stdout=open("/home/zain/playit.log", "w"),
+                stderr=subprocess.STDOUT,
+                preexec_fn=os.setpgrp,
+            )
+        return {"stdout": f"MINAS TIRITH is rising...\nConnect: {MC_ADDRESS}\nGive it ~10 seconds to fully load.", "stderr": "", "returncode": 0, "blocked": False}
+
+    elif action == "off":
+        result = subprocess.run(["pkill", "-f", MC_JAR], capture_output=True, text=True)
+        subprocess.run(["pkill", "playit"], capture_output=True)
+        if result.returncode == 0:
+            return {"stdout": "MINAS TIRITH has fallen. Server stopped.", "stderr": "", "returncode": 0, "blocked": False}
+        return {"stdout": "Server is not running.", "stderr": "", "returncode": 0, "blocked": False}
+
+    elif action == "status":
+        check = subprocess.run(["pgrep", "-f", MC_JAR], capture_output=True)
+        if check.returncode == 0:
+            return {"stdout": f"Server is RUNNING.\nConnect: {MC_ADDRESS}", "stderr": "", "returncode": 0, "blocked": False}
+        return {"stdout": "Server is OFFLINE.", "stderr": "", "returncode": 0, "blocked": False}
+
+    return {"stdout": "", "stderr": "Unknown action. Use: server on, server off, server status", "returncode": 1, "blocked": False}
+
 
 def is_command_safe(command_str: str) -> tuple[bool, str]:
     """Check if a command is safe to execute. Returns (is_safe, reason)."""
@@ -97,6 +150,10 @@ def is_command_safe(command_str: str) -> tuple[bool, str]:
 
 def execute_command(command_str: str) -> dict:
     """Execute a command safely. Returns dict with stdout, stderr, returncode, blocked."""
+    stripped = command_str.strip().lower()
+    if stripped in ("server on", "server off", "server status"):
+        return minecraft_server(stripped.split()[-1])
+
     safe, reason = is_command_safe(command_str)
     if not safe:
         return {

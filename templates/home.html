@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>PROMETHEON</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#04070d">
@@ -18,7 +20,7 @@
             --accent:       #6495ed;
             --accent-bright:#9ab5f5;
             --accent-dim:   #111d40;
-            --white:        #b0cfe0;
+            --white:        #e8f0f8;
             --gray:         #2d4a60;
             --dark:         #152030;
             --green:        #00ff99;
@@ -72,7 +74,7 @@
             font-size: 10px;
             letter-spacing: 0.2em;
             text-transform: uppercase;
-            color: var(--gray);
+            color: var(--white);
         }
         #titlebar .title-accent {
             color: var(--accent);
@@ -135,13 +137,16 @@
                 0 0 6px  rgba(100, 149, 237, 0.9),
                 0 0 18px rgba(100, 149, 237, 0.35),
                 0 0 40px rgba(100, 149, 237, 0.12);
+        }
+        #banner {
+            transition: color 2s ease, text-shadow 2s ease;
             transform-origin: top center;
         }
 
         /* ── Nav Cards ── */
         .cards {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: repeat(4, 1fr);
             gap: 12px;
             width: 100%;
             margin-bottom: 14px;
@@ -190,7 +195,7 @@
             font-size: 10px;
             font-weight: 500;
             letter-spacing: 0.1em;
-            color: var(--gray);
+            color: var(--white);
             margin-bottom: 10px;
             text-transform: uppercase;
         }
@@ -248,9 +253,11 @@
             font-size: 9px;
             font-weight: 600;
             letter-spacing: 0.12em;
-            color: var(--dark);
+            color: var(--white);
             text-transform: uppercase;
         }
+
+        .vitals-host { transition: opacity 0.3s ease; }
 
         .vitals-grid {
             display: grid;
@@ -266,12 +273,23 @@
             font-size: 8px;
             font-weight: 700;
             letter-spacing: 0.25em;
-            color: var(--gray);
+            color: var(--white);
             text-transform: uppercase;
             margin-bottom: 10px;
             padding-bottom: 6px;
             border-bottom: 1px solid var(--border);
         }
+
+        @keyframes fadeSlideIn {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .vitals-grid { opacity: 0; transform: translateY(8px); transition: opacity 0.4s ease, transform 0.4s ease; }
+        .vitals-grid.loaded { opacity: 1; transform: translateY(0); }
+        .vitals-footer { opacity: 0; transition: opacity 0.4s ease 0.15s; }
+        .vitals-footer.loaded { opacity: 1; }
+
+        .v-item { animation: fadeSlideIn 0.3s ease both; }
 
         #v-col-left, #v-col-right {
             display: flex;
@@ -286,6 +304,10 @@
         .v-item.ok   { border-left-color: var(--accent); }
         .v-item.warn { border-left-color: var(--yellow); }
         .v-item.crit { border-left-color: var(--red); }
+        /* Per-drive colors */
+        .v-item[data-drive] { border-left-color: var(--drive-color); }
+        .v-item[data-drive] .bar-fill { background: var(--drive-color); box-shadow: 0 0 4px var(--drive-color); }
+        .v-item[data-drive] .label { color: var(--drive-color); opacity: 0.85; }
 
         .vitals-row-header {
             display: flex;
@@ -295,7 +317,7 @@
         .vitals-row-header .label {
             font-family: 'Rajdhani', sans-serif;
             font-weight: 600;
-            color: var(--gray);
+            color: var(--white);
             font-size: 10px;
             letter-spacing: 0.08em;
             text-transform: uppercase;
@@ -322,7 +344,7 @@
             font-size: 9px;
             font-weight: 600;
             letter-spacing: 0.12em;
-            color: var(--dark);
+            color: var(--white);
             text-transform: uppercase;
         }
 
@@ -330,7 +352,7 @@
         #bottom {
             background: var(--panel);
             border-top: 1px solid var(--border);
-            color: var(--gray);
+            color: var(--white);
             font-family: 'Rajdhani', sans-serif;
             font-size: 9px;
             font-weight: 600;
@@ -359,7 +381,7 @@
             .vitals-grid { grid-template-columns: 1fr; }
             .vitals-col:first-child { padding-right: 0; border-right: none; border-bottom: 1px solid var(--border); padding-bottom: 14px; margin-bottom: 14px; }
             .vitals-col:last-child  { padding-left: 0; }
-            .cards { gap: 10px; }
+            .cards { grid-template-columns: 1fr 1fr; gap: 10px; }
             .nav-card { padding: 16px 10px; }
             .card-title { font-size: 11px; }
             .vitals { padding: 12px; }
@@ -416,6 +438,32 @@
                 <div class="card-title">Photos</div>
                 <div class="card-desc" id="photo-count-label">Media Gallery</div>
                 <span class="card-tag" style="color:var(--accent);border-color:var(--border)" id="photo-count-tag">—</span>
+            </a>
+            <a href="/breakdown" class="nav-card">
+                <div class="card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+                        <path d="M12 2v20M2 12h20"/>
+                        <rect x="3" y="14" width="4" height="6" rx="0.5"/>
+                        <rect x="10" y="8" width="4" height="12" rx="0.5"/>
+                        <rect x="17" y="4" width="4" height="16" rx="0.5"/>
+                    </svg>
+                </div>
+                <div class="card-title">Breakdown</div>
+                <div class="card-desc">Budget Allocator</div>
+                <span class="card-tag" style="color:var(--accent);border-color:var(--border)">Finance</span>
+            </a>
+            <a href="/journals" class="nav-card">
+                <div class="card-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5">
+                        <path d="M4 19.5A2.5 2.5 0 016.5 17H20"/>
+                        <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/>
+                        <line x1="8" y1="7" x2="16" y2="7"/>
+                        <line x1="8" y1="11" x2="14" y2="11"/>
+                    </svg>
+                </div>
+                <div class="card-title">Journals</div>
+                <div class="card-desc">GoodNotes Archive</div>
+                <span class="card-tag" style="color:var(--accent);border-color:var(--border)">Personal</span>
             </a>
         </div>
 
@@ -509,6 +557,25 @@
     window.addEventListener('resize', fit);
 })();
 
+// ─── Banner color breathe ───
+(function() {
+    const banner = document.getElementById('banner');
+    if (!banner) return;
+    const bases = [
+        [100,149,237],[90,140,240],[80,130,245],[70,120,250],
+        [65,110,255],[60,130,255],[55,150,255],[70,170,255],
+        [85,180,250],[100,190,245],[85,180,250],[70,170,255],
+        [55,150,255],[65,110,255],[80,130,245],[90,140,240],
+    ];
+    let i = 0;
+    setInterval(() => {
+        i = (i + 1) % bases.length;
+        const b = bases[i];
+        banner.style.color = `rgb(${b[0]},${b[1]},${b[2]})`;
+        banner.style.textShadow = `0 0 6px rgba(${b[0]},${b[1]},${b[2]},0.9), 0 0 18px rgba(${b[0]},${b[1]},${b[2]},0.35), 0 0 40px rgba(${b[0]},${b[1]},${b[2]},0.12)`;
+    }, 2000);
+})();
+
 function tick() {
     const t = new Date().toLocaleTimeString('en-US', {hour12: false});
     document.getElementById('clock').textContent        = t;
@@ -519,8 +586,31 @@ tick(); setInterval(tick, 1000);
 
 function barClass(pct) { return pct > 90 ? 'crit' : pct > 70 ? 'warn' : 'ok'; }
 
+const itemColors = {
+    // Compute — different blues
+    'CPU Temp':   '#5b9bf5',  // soft blue
+    'CPU':        '#4a8af0',  // medium blue
+    'Memory':     '#7baaf7',  // periwinkle
+    'PROMETHEUS': '#3d7be0',  // deep blue
+    // Drives — fun colors
+    'EVO':        '#6495ed',  // cornflower blue
+    'AirDisk':    '#c084fc',  // purple
+    'T7':         '#00ff99',  // green
+    'T9':         '#f59e0b',  // amber
+    'BACKUP':     '#f472b6',  // pink
+};
 function vItem(label, value, pct) {
     const cls = barClass(pct);
+    const color = itemColors[label];
+    if (color) {
+        return `<div class="v-item ${cls}" data-drive="${label}" style="--drive-color:${color}">
+            <div class="vitals-row-header">
+                <span class="label">${label}</span>
+                <span class="value">${value}</span>
+            </div>
+            <div class="bar"><div class="bar-fill" style="width:${pct}%;background:${color};box-shadow:0 0 4px ${color}"></div></div>
+        </div>`;
+    }
     return `<div class="v-item ${cls}">
         <div class="vitals-row-header">
             <span class="label">${label}</span>
@@ -528,6 +618,68 @@ function vItem(label, value, pct) {
         </div>
         <div class="bar"><div class="bar-fill ${cls}" style="width:${pct}%"></div></div>
     </div>`;
+}
+
+function _updateItem(container, label, value, pct) {
+    let el = container.querySelector(`[data-drive="${label}"]`);
+    if (!el) {
+        // First render — create the element
+        el = document.createElement('div');
+        el.className = 'v-item ' + barClass(pct);
+        el.setAttribute('data-drive', label);
+        const color = itemColors[label];
+        if (color) el.style.setProperty('--drive-color', color);
+        el.innerHTML = `<div class="vitals-row-header">
+            <span class="label">${label}</span>
+            <span class="value"></span>
+        </div>
+        <div class="bar"><div class="bar-fill" style="width:0%"></div></div>`;
+        container.appendChild(el);
+    }
+    // Update only the changing parts
+    el.querySelector('.value').textContent = value;
+    const fill = el.querySelector('.bar-fill');
+    const color = itemColors[label];
+    fill.style.width = pct + '%';
+    if (color) { fill.style.background = color; fill.style.boxShadow = '0 0 4px ' + color; }
+    el.className = 'v-item ' + barClass(pct);
+    if (color) el.setAttribute('data-drive', label);
+}
+
+function _updateMordor(container, info) {
+    const on = info.mordor.online;
+    window._mordorOnline = on;
+    let statusText, color, btnLabel, btnColor, action, cursor, anim;
+    if (mordorPending === 'starting') {
+        statusText = 'STARTING...'; color = 'var(--yellow)'; btnLabel = ''; btnColor = 'var(--yellow)'; action = ''; cursor = 'default'; anim = 'animation:pulse-dot 1s ease-in-out infinite';
+    } else if (mordorPending === 'stopping') {
+        statusText = 'STOPPING...'; color = 'var(--yellow)'; btnLabel = ''; btnColor = 'var(--yellow)'; action = ''; cursor = 'default'; anim = 'animation:pulse-dot 1s ease-in-out infinite';
+    } else if (on) {
+        statusText = 'ONLINE'; color = 'var(--green)'; btnLabel = 'STOP'; btnColor = 'var(--red)'; action = 'stop'; cursor = 'pointer'; anim = '';
+    } else {
+        statusText = 'OFFLINE'; color = 'var(--gray)'; btnLabel = 'START'; btnColor = 'var(--green)'; action = 'start'; cursor = 'pointer'; anim = '';
+    }
+    let el = container.querySelector('[data-drive="MORDOR"]');
+    if (!el) {
+        el = document.createElement('div');
+        el.className = 'v-item';
+        el.setAttribute('data-drive', 'MORDOR');
+        el.innerHTML = `<div class="vitals-row-header">
+            <span class="label">MORDOR</span>
+            <span class="value" style="font-size:9px;letter-spacing:0.1em"></span>
+        </div>
+        <div class="mordor-status" style="font-family:'Rajdhani',sans-serif;font-size:9px;margin-top:1px;letter-spacing:0.08em"></div>`;
+        container.appendChild(el);
+    }
+    el.style.borderLeftColor = color;
+    el.style.cursor = cursor;
+    el.onclick = action ? () => toggleMordor(action) : null;
+    const lbl = el.querySelector('.label');
+    lbl.style.color = color; lbl.style.animation = anim ? 'pulse-dot 1s ease-in-out infinite' : '';
+    const val = el.querySelector('.value');
+    val.textContent = btnLabel; val.style.color = btnColor;
+    const st = el.querySelector('.mordor-status');
+    st.textContent = statusText; st.style.color = color; st.style.animation = anim ? 'pulse-dot 1s ease-in-out infinite' : '';
 }
 
 async function loadVitals() {
@@ -539,32 +691,36 @@ async function loadVitals() {
         document.getElementById('vitals-host').textContent = info.hostname;
         document.getElementById('v-uptime').textContent    = 'Uptime · ' + info.uptime;
 
+        const left = document.getElementById('v-col-left');
         const cpuPct = parseFloat(info.cpu_percent);
-        let left = '';
         if (info.cpu_temp !== null && info.cpu_temp !== undefined) {
-            const tempPct = Math.min(100, (info.cpu_temp / 100) * 100);
-            left += vItem('CPU Temp', info.cpu_temp + '°C', tempPct);
+            _updateItem(left, 'CPU Temp', info.cpu_temp + '°C', Math.min(100, (info.cpu_temp / 100) * 100));
         }
-        left += vItem('CPU', cpuPct + '%', cpuPct);
+        _updateItem(left, 'CPU', cpuPct + '%', cpuPct);
         const memPct = parseFloat(info.memory_percent);
-        left += vItem('Memory', info.memory_used + ' / ' + info.memory_total, memPct);
+        _updateItem(left, 'Memory', info.memory_used + ' / ' + info.memory_total, memPct);
         const pool = info.disks.find(d => d.name === 'PROMETHEUS');
-        if (pool) left += vItem('PROMETHEUS', pool.used + ' / ' + pool.total, pool.percent);
-        document.getElementById('v-col-left').innerHTML = left;
+        if (pool) _updateItem(left, 'PROMETHEUS', pool.used + ' / ' + pool.total, pool.percent);
+        if (info.mordor) _updateMordor(left, info);
 
-        let right = '';
+        const right = document.getElementById('v-col-right');
         const driveOrder = ['EVO', 'AirDisk', 'T7', 'T9'];
         const shown = new Set(['PROMETHEUS']);
         driveOrder.forEach(name => {
             const d = info.disks.find(x => x.name === name);
-            if (d) { right += vItem(name, d.used + ' / ' + d.total, d.percent); shown.add(name); }
+            if (d) { _updateItem(right, name, d.used + ' / ' + d.total, d.percent); shown.add(name); }
         });
         const t5 = info.disks.find(x => x.name === 'T5');
-        if (t5) { right += vItem('BACKUP', t5.used + ' / ' + t5.total, t5.percent); shown.add('T5'); }
+        if (t5) { _updateItem(right, 'BACKUP', t5.used + ' / ' + t5.total, t5.percent); shown.add('T5'); }
         info.disks.forEach(d => {
-            if (!shown.has(d.name)) right += vItem(d.name, d.used + ' / ' + d.total, d.percent);
+            if (!shown.has(d.name)) _updateItem(right, d.name, d.used + ' / ' + d.total, d.percent);
         });
-        document.getElementById('v-col-right').innerHTML = right;
+
+        // Fade in vitals (first load only)
+        requestAnimationFrame(() => {
+            document.querySelector('.vitals-grid').classList.add('loaded');
+            document.querySelector('.vitals-footer').classList.add('loaded');
+        });
 
     } catch (e) {}
 }
@@ -581,6 +737,35 @@ async function loadPhotoCount() {
             document.getElementById('photo-count-tag').textContent = parts.join(' · ') || data.total.toLocaleString();
         }
     } catch (e) {}
+}
+
+let mordorPending = null; // 'starting' or 'stopping'
+
+async function toggleMordor(action) {
+    if (mordorPending) return; // already in progress
+    mordorPending = action === 'start' ? 'starting' : 'stopping';
+    // Immediately re-render with pending state
+    loadVitals();
+    try {
+        await fetch('/api/mordor', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({action})
+        });
+    } catch (e) {}
+    // Poll fast until state changes
+    let checks = 0;
+    const poll = setInterval(async () => {
+        checks++;
+        await loadVitals();
+        const confirmed = (mordorPending === 'starting' && window._mordorOnline)
+                       || (mordorPending === 'stopping' && !window._mordorOnline);
+        if (confirmed || checks > 30) {
+            mordorPending = null;
+            clearInterval(poll);
+            loadVitals();
+        }
+    }, 2000);
 }
 
 loadVitals(); setInterval(loadVitals, 5000);

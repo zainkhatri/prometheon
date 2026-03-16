@@ -4,6 +4,8 @@ import json
 import os
 import secrets
 import functools
+import subprocess
+import sys
 import threading
 import time
 from collections import OrderedDict
@@ -15,11 +17,11 @@ from werkzeug.utils import secure_filename
 
 load_dotenv()
 
-from system_info import get_system_info
-import llm_interface
-import claude_interface
-from llm_interface import get_usage_stats
-from recycling_bin import trash_file, list_trash, restore as restore_trash
+from system.system_info import get_system_info
+from ai import llm_interface
+from ai import claude_interface
+from ai.llm_interface import get_usage_stats
+from system.recycling_bin import trash_file, list_trash, restore as restore_trash
 
 app = Flask(__name__)
 app.secret_key = os.getenv("FLASK_SECRET", secrets.token_hex(32))
@@ -356,12 +358,650 @@ def terminal():
     return render_template("index.html", username=session.get("username", LOGIN_USER))
 
 
+@app.route("/breakdown")
+@require_auth
+def breakdown_page():
+    return render_template("breakdown.html")
+
+
+@app.route("/api/breakdown", methods=["GET"])
+@require_auth
+def get_breakdown_data():
+    path = os.path.join(_APP_DIR, "breakdown_data.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return jsonify(json.load(f))
+    return jsonify({"entries": []})
+
+
+@app.route("/api/breakdown", methods=["POST"])
+@require_auth
+def save_breakdown_entry():
+    """Save a half-month entry. Key is monthKey + half (e.g. 2026-03-H1)."""
+    path = os.path.join(_APP_DIR, "breakdown_data.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            data = json.load(f)
+    else:
+        data = {"entries": []}
+    entry = request.json
+    entry_key = entry.get("id")  # e.g. "2026-03-H1"
+    data["entries"] = [e for e in data["entries"] if e.get("id") != entry_key]
+    data["entries"].append(entry)
+    data["entries"].sort(key=lambda e: e.get("id", ""))
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return jsonify({"success": True})
+
+
+@app.route("/api/breakdown/<entry_id>", methods=["DELETE"])
+@require_auth
+def delete_breakdown_entry(entry_id):
+    path = os.path.join(_APP_DIR, "breakdown_data.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            data = json.load(f)
+        data["entries"] = [e for e in data["entries"] if e.get("id") != entry_id]
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2)
+    return jsonify({"success": True})
+
+
+# ── Portfolio / Investments ──
+
+FINNHUB_KEY = os.getenv("FINNHUB_KEY", "")
+
+@app.route("/api/portfolio", methods=["GET"])
+@require_auth
+def get_portfolio():
+    path = os.path.join(_APP_DIR, "portfolio.json")
+    if os.path.exists(path):
+        with open(path, "r") as f:
+            return jsonify(json.load(f))
+    return jsonify({"holdings": []})
+
+
+@app.route("/api/portfolio", methods=["POST"])
+@require_auth
+def save_portfolio():
+    path = os.path.join(_APP_DIR, "portfolio.json")
+    data = request.json
+    with open(path, "w") as f:
+        json.dump(data, f, indent=2)
+    return jsonify({"success": True})
+
+
+CRYPTO_MAP = {"BTC": "bitcoin", "ETH": "ethereum", "SOL": "solana", "DOGE": "dogecoin"}
+
+@app.route("/api/stock-quote/<symbol>")
+@require_auth
+def stock_quote(symbol):
+    import requests as req
+    sym = symbol.upper().replace("-USD", "")
+
+    # Crypto — use CoinGecko free API
+    if sym in CRYPTO_MAP:
+        try:
+            r = req.get(
+                "https://api.coingecko.com/api/v3/simple/price",
+                params={"ids": CRYPTO_MAP[sym], "vs_currencies": "usd", "include_24hr_change": "true"},
+                timeout=5,
+            )
+            data = r.json().get(CRYPTO_MAP[sym], {})
+            price = data.get("usd", 0)
+            change_pct = data.get("usd_24h_change", 0)
+            return jsonify({"c": price, "dp": change_pct, "d": 0})
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+
+    # Stocks — Yahoo Finance (no key needed)
+    try:
+        r = req.get(
+            f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}",
+            params={"range": "1d", "interval": "1d"},
+            headers={"User-Agent": "Mozilla/5.0"},
+            timeout=5,
+        )
+        meta = r.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+        price = meta.get("regularMarketPrice", 0)
+        prev = meta.get("chartPreviousClose", 0)
+        change = round(price - prev, 2)
+        change_pct = round((change / prev * 100) if prev else 0, 2)
+        return jsonify({"c": price, "d": change, "dp": change_pct})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+# ── Journals ──
+
+JOURNALS_DIR = os.path.join(os.path.dirname(_APP_DIR), "PERSONAL", "journals")
+GOODNOTES_DB = os.path.expanduser(
+    "~/Library/Containers/com.goodnotesapp.x/Data/Library/Databases/projection.sqlite"
+)
+_GN_TEMPLATE_NAMES = {
+    "Text Stamps", "Back To School", "Sticky Notes", "Everyday Stickers",
+    "Mind Map Shapes", "Ruled Wide", "Squared Paper", "Ruled Narrow",
+    "Bright", "Calligraphr-Template",
+}
+_GN_TEMPLATE_ROOTS = {
+    "F6327919-7604-421F-9B60-C38A787F9F42",
+    "14AC2082-C07A-4C4F-AF22-A23ACC3B8A5F",
+}
+
+
+def _sync_goodnotes_meta():
+    """Read Goodnotes projection DB and write metadata JSON."""
+    import sqlite3, shutil, tempfile
+    if not os.path.exists(GOODNOTES_DB):
+        return
+    tmp = tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False)
+    tmp.close()
+    try:
+        shutil.copy2(GOODNOTES_DB, tmp.name)
+        for ext in ["-wal", "-shm"]:
+            src = GOODNOTES_DB + ext
+            if os.path.exists(src):
+                shutil.copy2(src, tmp.name + ext)
+        conn = sqlite3.connect(tmp.name)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("""
+            SELECT d.id, d.name, d.updated_at, COUNT(p.id) as page_count
+            FROM documents d
+            LEFT JOIN pages p ON p.document_id = d.id AND p.deleted = 0
+            WHERE d.deleted = 0 AND d.document_type = 0
+            GROUP BY d.id HAVING page_count > 1
+            ORDER BY d.updated_at DESC
+        """).fetchall()
+        folder_items = {
+            r["item_id"]: r["root_folder_id"]
+            for r in conn.execute(
+                "SELECT item_id, root_folder_id FROM folder_to_folder_items WHERE deleted = 0 AND item_type = 1"
+            ).fetchall()
+        }
+        conn.close()
+    except Exception:
+        return
+    finally:
+        os.unlink(tmp.name)
+        for ext in ["-wal", "-shm"]:
+            p = tmp.name + ext
+            if os.path.exists(p):
+                os.unlink(p)
+
+    # Check which have PDFs on disk
+    pdfs = set()
+    if os.path.isdir(JOURNALS_DIR):
+        for f in os.listdir(JOURNALS_DIR):
+            if f.lower().endswith(".pdf") and not f.startswith("."):
+                pdfs.add(f.lower().replace(".pdf", "").replace("-pdf", ""))
+
+    notebooks = []
+    for row in rows:
+        name = row["name"]
+        if name in _GN_TEMPLATE_NAMES:
+            continue
+        if folder_items.get(row["id"], "") in _GN_TEMPLATE_ROOTS:
+            continue
+        ts = row["updated_at"]
+        updated = time.strftime("%Y-%m-%d", time.gmtime(ts / 1000)) if ts and ts > 0 else None
+        notebooks.append({
+            "id": row["id"], "name": name, "pages": row["page_count"],
+            "updated": updated, "has_pdf": name.lower() in pdfs,
+        })
+
+    # Try to sync Auto-Backup PDFs from iCloud Drive (via Finder for TCC bypass)
+    _sync_autobackup_pdfs()
+
+    # Re-check PDFs after potential auto-backup sync
+    pdfs = set()
+    if os.path.isdir(JOURNALS_DIR):
+        for f in os.listdir(JOURNALS_DIR):
+            if f.lower().endswith(".pdf") and not f.startswith("."):
+                pdfs.add(f.lower().replace(".pdf", "").replace("-pdf", ""))
+    for nb in notebooks:
+        nb["has_pdf"] = nb["name"].lower() in pdfs
+
+    os.makedirs(JOURNALS_DIR, exist_ok=True)
+    meta_path = os.path.join(JOURNALS_DIR, "goodnotes_meta.json")
+    with open(meta_path, "w") as f:
+        json.dump({
+            "synced_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
+            "icloud_id": "_3bd21be7957b7a056dd7ca10a999e07e",
+            "notebooks": notebooks,
+        }, f, indent=2)
+
+
+def _sync_autobackup_pdfs():
+    """Collect exported PDFs from Goodnotes temp exports and iCloud Drive."""
+    if sys.platform != "darwin":
+        return
+    os.makedirs(JOURNALS_DIR, exist_ok=True)
+
+    # 1. Check Goodnotes export temp directory for any PDFs
+    gn_exports = os.path.expanduser(
+        "~/Library/Containers/com.goodnotesapp.x/Data/tmp/Exports"
+    )
+    if os.path.isdir(gn_exports):
+        for dirpath, _dirs, files in os.walk(gn_exports):
+            for f in files:
+                if not f.lower().endswith(".pdf"):
+                    continue
+                src = os.path.join(dirpath, f)
+                dest = os.path.join(JOURNALS_DIR, f)
+                # Copy if newer or doesn't exist in journals
+                if not os.path.exists(dest) or os.path.getmtime(src) > os.path.getmtime(dest):
+                    try:
+                        import shutil
+                        shutil.copy2(src, dest)
+                    except Exception:
+                        pass
+
+    # 2. Check iCloud Drive for Auto-Backup PDFs (via Finder for TCC bypass)
+    icloud = os.path.expanduser("~/Library/Mobile Documents/com~apple~CloudDocs")
+    for folder_name in ["GoodNotes Auto Backup", "GoodNotes 5 Auto Backup", "Goodnotes Auto Backup", "GoodNotes"]:
+        icloud_path = os.path.join(icloud, folder_name)
+        script = f'''
+        tell application "Finder"
+            try
+                set bf to folder (POSIX file "{icloud_path}" as alias)
+                set pfs to every file of bf whose name extension is "pdf"
+                set r to ""
+                repeat with f in pfs
+                    set r to r & (POSIX path of (f as alias)) & linefeed
+                end repeat
+                return r
+            on error
+                return ""
+            end try
+        end tell
+        '''
+        try:
+            result = subprocess.run(["osascript", "-e", script], capture_output=True, text=True, timeout=15)
+            paths = [p.strip() for p in result.stdout.strip().split("\n") if p.strip()]
+            if not paths:
+                continue
+            for pdf_path in paths:
+                dest = os.path.join(JOURNALS_DIR, os.path.basename(pdf_path))
+                if not os.path.exists(dest) or os.path.getmtime(pdf_path) > os.path.getmtime(dest):
+                    copy_script = f'''
+                    tell application "Finder"
+                        try
+                            duplicate (POSIX file "{pdf_path}" as alias) to folder (POSIX file "{JOURNALS_DIR}" as alias) with replacing
+                        end try
+                    end tell
+                    '''
+                    subprocess.run(["osascript", "-e", copy_script], capture_output=True, timeout=120)
+            return
+        except Exception:
+            continue
+
+
+def _start_goodnotes_sync():
+    """Sync Goodnotes metadata once at startup, then only on manual trigger."""
+    if sys.platform != "darwin":
+        return
+    def _initial():
+        time.sleep(5)  # wait for app to finish loading
+        try:
+            _sync_goodnotes_meta()
+        except Exception:
+            pass
+    threading.Thread(target=_initial, daemon=True).start()
+
+
+_start_goodnotes_sync()
+
+
+def _prerender_journal_pages():
+    """Background: pre-render all journal pages to disk cache so they load instantly."""
+    import fitz
+    time.sleep(10)  # let app finish starting
+    os.makedirs(_JOURNAL_CACHE_DIR, exist_ok=True)
+    for fname in os.listdir(JOURNALS_DIR):
+        if not fname.lower().endswith(".pdf") or fname.startswith("."):
+            continue
+        path = os.path.join(JOURNALS_DIR, fname)
+        try:
+            doc = fitz.open(path)
+        except Exception:
+            continue
+        pdf_mtime = int(os.path.getmtime(path))
+        total = doc.page_count
+        for pg_num in range(total):
+            for tag, scale, quality in [("hq", 1.5, 80), ("full", 2.0, 85)]:
+                cache_key = f"{fname}_{pg_num}_{tag}_{pdf_mtime}.jpg"
+                cache_path = os.path.join(_JOURNAL_CACHE_DIR, cache_key)
+                if os.path.isfile(cache_path):
+                    continue
+                try:
+                    pg = doc[pg_num]
+                    pix = pg.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                    pix.save(cache_path, output="jpeg", jpg_quality=quality)
+                except Exception:
+                    pass
+            if pg_num % 50 == 0 and pg_num > 0:
+                print(f"[journals] Pre-rendered {pg_num}/{total} pages of {fname}")
+        doc.close()
+        print(f"[journals] Pre-rendered all {total} pages of {fname}")
+
+
+threading.Thread(target=_prerender_journal_pages, daemon=True).start()
+
+
+@app.route("/journals")
+@require_auth
+def journals_page():
+    return render_template("journals.html")
+
+
+@app.route("/api/journals/sync", methods=["POST"])
+@require_auth
+def sync_journals():
+    """Trigger a manual Goodnotes sync. Pass ?export=1 to also re-export stale PDFs."""
+    try:
+        _sync_goodnotes_meta()
+        if request.args.get("export"):
+            exported = _auto_export_stale()
+            if exported:
+                _sync_goodnotes_meta()  # refresh metadata after export
+            return jsonify({"ok": True, "exported": exported})
+        return jsonify({"ok": True})
+    except Exception as e:
+        return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _auto_export_stale():
+    """Check for notebooks with stale PDFs and re-export via Goodnotes UI automation."""
+    if sys.platform != "darwin":
+        return []
+    import shutil as _sh
+
+    meta_path = os.path.join(JOURNALS_DIR, "goodnotes_meta.json")
+    if not os.path.isfile(meta_path):
+        return []
+    with open(meta_path) as f:
+        meta = json.load(f)
+
+    exported = []
+    for nb in meta.get("notebooks", []):
+        if not nb.get("has_pdf"):
+            continue  # only re-export notebooks that already have a PDF
+        name = nb["name"]
+        pdf_path = os.path.join(JOURNALS_DIR, name + ".pdf")
+        if not os.path.isfile(pdf_path):
+            # try alternate name
+            for f in os.listdir(JOURNALS_DIR):
+                if f.lower().replace("-pdf", "").replace(".pdf", "") == name.lower() and f.endswith(".pdf"):
+                    pdf_path = os.path.join(JOURNALS_DIR, f)
+                    break
+        if not os.path.isfile(pdf_path):
+            continue
+
+        # Compare: Goodnotes updated_at vs PDF mtime
+        gn_ts = nb.get("updated")  # "YYYY-MM-DD"
+        if not gn_ts:
+            continue
+        import datetime as _dt
+        gn_date = _dt.datetime.strptime(gn_ts, "%Y-%m-%d")
+        pdf_date = _dt.datetime.fromtimestamp(os.path.getmtime(pdf_path))
+        if gn_date.date() <= pdf_date.date():
+            continue  # PDF is up to date
+
+        # Need re-export — use UI automation
+        try:
+            ok = _goodnotes_export_via_ui(name)
+            if ok:
+                exported.append(name)
+        except Exception:
+            pass
+
+    return exported
+
+
+def _goodnotes_export_via_ui(name):
+    """Trigger Goodnotes to export current notebook as PDF via UI automation.
+    Returns True if a PDF was successfully captured from the exports temp dir."""
+    import shutil as _sh
+
+    gn_exports = os.path.expanduser(
+        "~/Library/Containers/com.goodnotesapp.x/Data/tmp/Exports"
+    )
+    # Clear old exports
+    if os.path.isdir(gn_exports):
+        for d in os.listdir(gn_exports):
+            p = os.path.join(gn_exports, d)
+            if os.path.isdir(p):
+                _sh.rmtree(p, ignore_errors=True)
+
+    # Activate Goodnotes, select all, trigger export
+    export_script = '''
+    tell application "Goodnotes" to activate
+    delay 1
+    tell application "System Events"
+        tell process "Goodnotes"
+            keystroke "a" using command down
+            delay 0.3
+            click menu item "Export..." of menu 1 of menu bar item "File" of menu bar 1
+            delay 2
+
+            set s to sheet 1 of window 1
+            set allElems to entire contents of s
+
+            repeat with elem in allElems
+                try
+                    if class of elem is button then
+                        set p to position of elem
+                        if (item 2 of p) > 225 and (item 2 of p) < 300 and (item 1 of p) < 950 then
+                            click elem
+                            delay 0.3
+                            exit repeat
+                        end if
+                    end if
+                end try
+            end repeat
+
+            repeat with elem in allElems
+                try
+                    if class of elem is button and description of elem is "Export" then
+                        click elem
+                        exit repeat
+                    end if
+                end try
+            end repeat
+
+            -- Wait for export to finish
+            repeat 90 times
+                delay 2
+                try
+                    set s2 to sheet 1 of window 1
+                    set elems2 to entire contents of s2
+                    repeat with elem in elems2
+                        try
+                            if class of elem is pop up button then
+                                keystroke "." using command down
+                                delay 0.5
+                                return "DONE"
+                            end if
+                            if (description of elem) contains "Save As" then
+                                keystroke "." using command down
+                                delay 0.5
+                                return "DONE"
+                            end if
+                        end try
+                    end repeat
+                on error
+                    return "DONE_NO_SHEET"
+                end try
+            end repeat
+            return "TIMEOUT"
+        end tell
+    end tell
+    '''
+    result = subprocess.run(
+        ["osascript", "-e", export_script],
+        capture_output=True, text=True, timeout=300
+    )
+
+    # Collect exported PDF
+    time.sleep(2)
+    if os.path.isdir(gn_exports):
+        for dirpath, _dirs, files in os.walk(gn_exports):
+            for f in files:
+                if f.lower().endswith(".pdf"):
+                    src = os.path.join(dirpath, f)
+                    dest = os.path.join(JOURNALS_DIR, f)
+                    _sh.copy2(src, dest)
+                    return True
+    return False
+
+
+@app.route("/api/journals")
+@require_auth
+def list_journals():
+    import fitz
+    # Read Goodnotes metadata if available
+    meta_path = os.path.join(JOURNALS_DIR, "goodnotes_meta.json")
+    gn_meta = {}
+    gn_synced_at = None
+    if os.path.isfile(meta_path):
+        try:
+            with open(meta_path) as f:
+                meta = json.load(f)
+            gn_synced_at = meta.get("synced_at")
+            for nb in meta.get("notebooks", []):
+                gn_meta[nb["name"].lower()] = nb
+        except Exception:
+            pass
+
+    # Scan PDFs on disk
+    pdf_info = {}
+    if os.path.isdir(JOURNALS_DIR):
+        for f in sorted(os.listdir(JOURNALS_DIR)):
+            if f.startswith(".") or not f.lower().endswith(".pdf"):
+                continue
+            path = os.path.join(JOURNALS_DIR, f)
+            try:
+                doc = fitz.open(path)
+                pages = doc.page_count
+                doc.close()
+            except Exception:
+                pages = 0
+            key = f.lower().replace(".pdf", "").replace("-pdf", "")
+            pdf_info[key] = {"name": f, "pages": pages, "size": os.path.getsize(path)}
+
+    # Merge: Goodnotes metadata + PDF availability
+    journals = []
+    seen = set()
+    for key, nb in gn_meta.items():
+        pdf = pdf_info.get(key) or pdf_info.get(key.replace(" ", "-"))
+        entry = {
+            "name": pdf["name"] if pdf else nb["name"] + ".pdf",
+            "display_name": nb["name"],
+            "pages": pdf["pages"] if pdf else 0,
+            "gn_pages": nb.get("pages", 0),
+            "has_pdf": pdf is not None,
+            "updated": nb.get("updated"),
+            "gn_id": nb.get("id"),
+        }
+        if pdf:
+            entry["size"] = pdf["size"]
+        journals.append(entry)
+        seen.add(key)
+        if pdf:
+            seen.add(next((k for k, v in pdf_info.items() if v == pdf), ""))
+
+    # Add any PDFs not in Goodnotes metadata
+    for key, pdf in pdf_info.items():
+        if key not in seen:
+            journals.append({
+                "name": pdf["name"],
+                "display_name": pdf["name"].replace(".pdf", "").replace("-pdf", ""),
+                "pages": pdf["pages"],
+                "gn_pages": 0,
+                "has_pdf": True,
+                "size": pdf["size"],
+            })
+
+    return jsonify({"journals": journals, "synced_at": gn_synced_at})
+
+
+_JOURNAL_CACHE_DIR = os.path.join(JOURNALS_DIR, ".cache")
+
+@app.route("/api/journals/<name>/page/<int:page>")
+@require_auth
+def journal_page_image(name, page):
+    import fitz
+    path = os.path.join(JOURNALS_DIR, name)
+    if not os.path.isfile(path):
+        abort(404)
+
+    thumb = request.args.get("thumb")
+    if thumb == "hq":
+        scale, quality, tag = 1.5, 80, "hq"
+    elif thumb:
+        scale, quality, tag = 1.0, 70, "lo"
+    else:
+        scale, quality, tag = 2.0, 85, "full"
+
+    # Disk cache: avoids re-rendering from the huge PDF
+    os.makedirs(_JOURNAL_CACHE_DIR, exist_ok=True)
+    pdf_mtime = int(os.path.getmtime(path))
+    cache_key = f"{name}_{page}_{tag}_{pdf_mtime}.jpg"
+    cache_path = os.path.join(_JOURNAL_CACHE_DIR, cache_key)
+    if os.path.isfile(cache_path):
+        return send_file(cache_path, mimetype="image/jpeg")
+
+    doc = fitz.open(path)
+    if page < 0 or page >= doc.page_count:
+        doc.close()
+        abort(404)
+    pg = doc[page]
+    mat = fitz.Matrix(scale, scale)
+    pix = pg.get_pixmap(matrix=mat)
+    img_data = pix.tobytes("jpeg", quality)
+    doc.close()
+
+    # Save to cache
+    try:
+        with open(cache_path, "wb") as cf:
+            cf.write(img_data)
+    except Exception:
+        pass
+
+    resp = make_response(img_data)
+    resp.headers["Content-Type"] = "image/jpeg"
+    resp.headers["Cache-Control"] = "public, max-age=86400"
+    return resp
+
+
 @app.route("/api/system-info")
 @require_auth
 def system_info():
     info = get_system_info()
     info["api_usage"] = get_usage_stats()
     return jsonify(info)
+
+
+@app.route("/api/mordor", methods=["POST"])
+@require_auth
+def mordor_toggle():
+    action = request.json.get("action") if request.is_json else None
+    mordor_dir = os.path.join(
+        "/srv/mergerfs/PROMETHEUS" if not sys.platform == "darwin" else "/Volumes/PROMETHEUS",
+        "MORDOR"
+    )
+    manager = os.path.join(mordor_dir, "server_manager.sh")
+    if action in ("start", "stop"):
+        # Fix ownership first (PROMETHEON runs as root)
+        subprocess.run(["chown", "-R", "zain:zain", mordor_dir], timeout=30)
+        # Run as zain
+        cmd = ["sudo", "-u", "zain", "bash", manager, action]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=35, cwd=mordor_dir)
+            return jsonify({"ok": True, "status": action + "ing", "output": result.stdout.strip()})
+        except subprocess.TimeoutExpired:
+            return jsonify({"ok": True, "status": action + "ing", "output": "timed out waiting"})
+    return jsonify({"ok": False, "error": "invalid action"}), 400
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -375,6 +1015,22 @@ def chat_endpoint():
 
     if not message and not image_b64:
         return jsonify({"error": "Empty message"}), 400
+
+    # ─── Direct commands (bypass AI) ───
+    from ai.safe_executor import minecraft_server
+    cmd_lower = message.lower().strip()
+    if cmd_lower in ("server on", "server off", "server status"):
+        action = cmd_lower.split()[-1]
+        result = minecraft_server(action)
+        reply = result["stdout"] or result["stderr"]
+        def direct_reply():
+            yield f"data: {json.dumps({'type': 'text', 'content': reply})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return Response(
+            stream_with_context(direct_reply()),
+            mimetype="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
     if session_id not in conversations:
         conversations[session_id] = []
@@ -1115,7 +1771,7 @@ def download_photo_direct():
 
 # ─── Photo Upload (iPhone Sync) ───
 
-from photo_scanner import gen_thumb, get_media_date, hash_path, IMAGE_EXTS, VIDEO_EXTS, ALL_EXTS, THUMB_DIR, THUMB_HQ_DIR, PHOTOS_ROOT, CONTENT_HASH_FILE
+from photos.photo_scanner import gen_thumb, get_media_date, hash_path, IMAGE_EXTS, VIDEO_EXTS, ALL_EXTS, THUMB_DIR, THUMB_HQ_DIR, PHOTOS_ROOT, CONTENT_HASH_FILE
 import hashlib as _hashlib
 
 _content_hashes = {}
@@ -1416,6 +2072,45 @@ def _warm_all_thumbs(items):
     _build_landscape_index()
     _summary_cache["data"] = None  # force re-generation with landscape data
 
+    # After initial thumbs done, pre-generate preview (2048px) for ALL photos
+    # This runs slowly in background so lightbox opens instantly
+    threading.Thread(target=_prewarm_all_previews, args=(items,), daemon=True).start()
+
+
+def _prewarm_all_previews(items):
+    """Generate 2048px lightbox previews for all photos in background."""
+    time.sleep(5)
+    missing = []
+    for item in items:
+        url = item.get("thumb_hq", "")
+        if not url:
+            continue
+        name = url.rsplit("/", 1)[-1]
+        if not os.path.exists(os.path.join(_THUMB_PREVIEW_DIR, name)):
+            missing.append((item, name))
+
+    if not missing:
+        print(f"[preview] All {len(items)} previews cached.")
+        return
+
+    print(f"[preview] Pre-generating {len(missing)} lightbox previews...")
+    done = 0
+    for item, name in missing:
+        orig = item.get("path", "")
+        if not orig or not os.path.isfile(orig):
+            continue
+        ext = os.path.splitext(orig)[1].lower()
+        is_video = ext in VIDEO_EXTS
+        out = os.path.join(_THUMB_PREVIEW_DIR, name)
+        try:
+            gen_thumb(orig, out, 2048, 1, is_video)
+        except Exception:
+            pass
+        done += 1
+        if done % 500 == 0:
+            print(f"[preview] {done}/{len(missing)} previews done")
+    print(f"[preview] Done — {done} previews generated.")
+
 
 def _warm_recent_months(items, months=3):
     """Generate missing thumbs for the N most recent months in a thread pool."""
@@ -1433,13 +2128,17 @@ def _warm_recent_months(items, months=3):
 
     missing = []
     for item in to_warm:
-        for url_key, tdir in (("thumb", _THUMB_DIR), ("thumb_hq", _THUMB_HQ_DIR)):
+        for url_key, tdir, size, quality in [
+            ("thumb", _THUMB_DIR, 475, 3),
+            ("thumb_hq", _THUMB_HQ_DIR, 800, 2),
+            ("thumb_hq", _THUMB_PREVIEW_DIR, 2048, 1),  # preview for lightbox
+        ]:
             url = item.get(url_key, "")
             if not url:
                 continue
             name = url.rsplit("/", 1)[-1]
             if not os.path.exists(os.path.join(tdir, name)):
-                missing.append((item, url_key, tdir, name))
+                missing.append((item, tdir, name, size, quality))
 
     if not missing:
         return
@@ -1447,15 +2146,12 @@ def _warm_recent_months(items, months=3):
     print(f"[warmer] Pre-generating {len(missing)} thumbs for recent {months} months...")
 
     def _gen_one(args):
-        item, url_key, tdir, name = args
+        item, tdir, name, size, quality = args
         orig = item.get("path", "")
         if not orig or not os.path.isfile(orig):
             return
-        is_hq = url_key == "thumb_hq"
         ext = os.path.splitext(orig)[1].lower()
         is_video = ext in VIDEO_EXTS
-        size = 800 if is_hq else 475
-        quality = 2 if is_hq else 3
         out = os.path.join(tdir, name)
         gen_thumb(orig, out, size, quality, is_video)
 

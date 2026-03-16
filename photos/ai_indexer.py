@@ -28,15 +28,16 @@ import numpy as np
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).parent
-PHOTO_INDEX = SCRIPT_DIR / "photo_index.json"
-AI_DIR = SCRIPT_DIR / "ai_data"
+PROJECT_ROOT = SCRIPT_DIR.parent
+PHOTO_INDEX = PROJECT_ROOT / "photo_index.json"
+AI_DIR = PROJECT_ROOT / "ai_data"
 CLIP_HASHES_FILE = AI_DIR / "clip_hashes.json"
 CLIP_EMB_FILE = AI_DIR / "clip_embeddings.npy"
 FACE_INDEX_FILE = AI_DIR / "face_index.json"
 FACE_EMB_FILE = AI_DIR / "face_embeddings.npy"
 FACE_CLUSTERS_FILE = AI_DIR / "face_clusters.json"
-FACE_CROPS_DIR = SCRIPT_DIR / "static" / "faces"
-THUMB_DIR = SCRIPT_DIR / "static" / "thumbs"
+FACE_CROPS_DIR = PROJECT_ROOT / "static" / "faces"
+THUMB_DIR = PROJECT_ROOT / "static" / "thumbs"
 SCREENSHOT_HASHES_FILE = AI_DIR / "screenshot_hashes.json"
 
 SAVE_EVERY = 200

@@ -15,11 +15,12 @@ from datetime import datetime
 
 # NAS-local paths
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PHOTOS_ROOT = os.path.join(os.path.dirname(SCRIPT_DIR), "PHOTOS", "PHOTOS")
-THUMB_DIR = os.path.join(SCRIPT_DIR, "static", "thumbs")
-THUMB_HQ_DIR = os.path.join(SCRIPT_DIR, "static", "thumbs_hq")
-INDEX_FILE = os.path.join(SCRIPT_DIR, "photo_index.json")
-CONTENT_HASH_FILE = os.path.join(SCRIPT_DIR, "content_hashes.json")
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+PHOTOS_ROOT = os.path.join(os.path.dirname(PROJECT_ROOT), "PHOTOS", "PHOTOS")
+THUMB_DIR = os.path.join(PROJECT_ROOT, "static", "thumbs")
+THUMB_HQ_DIR = os.path.join(PROJECT_ROOT, "static", "thumbs_hq")
+INDEX_FILE = os.path.join(PROJECT_ROOT, "photo_index.json")
+CONTENT_HASH_FILE = os.path.join(PROJECT_ROOT, "content_hashes.json")
 
 WORKERS = 8
 

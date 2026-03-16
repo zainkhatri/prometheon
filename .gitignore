@@ -14,18 +14,14 @@ ai_data/
 *.log
 photo_index.json
 content_hashes.json
+gpt_index.json
 .folder_sizes.json
 .disk_stats.json
 .nas_drives.json
 .usage.json
-ai_faces.log
-ai_indexer.log
-ai_rescan.log
 
 # System config that may contain local paths/users
-prometheon-sudoers
-*-sudoers
-nginx-prometheon.conf
+config/
 
 # TLS certs and keys (never commit)
 *.crt
@@ -45,3 +41,12 @@ static/face_avatars/
 # OS / IDE
 .DS_Store
 *.bak
+
+# Firebase credentials
+autoemail-*.json
+
+# Local data files
+breakdown_data.json
+portfolio.json
+xcuserdata/
+._*

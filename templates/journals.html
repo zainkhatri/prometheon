@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-[#04070d]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
+    <title>PROMETHEON — Journals</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#04070d">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script>
+    tailwind.config = {
+        theme: { extend: {
+            colors: { bg:'#04070d', panel:'#070c16', bdr:'#0c1e30', acc:'#6495ed', 'acc-b':'#9ab5f5', 'acc-d':'#111d40', wht:'#e8f0f8' },
+            fontFamily: { mono:['JetBrains Mono','monospace'], raj:['Rajdhani','sans-serif'] },
+        }}
+    }
+    </script>
+    <style>
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .pulse-dot { animation: pulse-dot 2.5s ease-in-out infinite; }
+        .page-thumb { background: #070c16; border: 1px solid #0c1e30; overflow: hidden; cursor: pointer; transition: border-color 0.15s, transform 0.15s; border-radius: 0; }
+        .page-thumb:hover { border-color: #6495ed40; transform: scale(1.02); }
+        .page-thumb img { width: 100%; display: block; object-fit: contain; }
+        .journal-card {
+            border-radius: 6px;
+            overflow: hidden;
+            border: 1px solid #0c1e30;
+            background: #070c16;
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.5);
+        }
+        .journal-card:hover {
+            transform: scale(0.98);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+        .journal-card img { width:100%; aspect-ratio:3/4; object-fit:cover; display:block; }
+        .journal-card.no-pdf {
+            border: 1px dashed #0c1e30;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            aspect-ratio: 3/4;
+        }
+        #reader { display:none; position:fixed; inset:0; z-index:50; background:#000; }
+        #reader.active { display:flex; flex-direction:column; }
+        #reader img { width:100%; height:100%; object-fit:contain; user-select:none; -webkit-user-select:none; }
+        #reader-bar { background:rgba(7,12,22,0.85); backdrop-filter:blur(8px); border-bottom:1px solid #0c1e30; }
+        #reader-bottom { background:rgba(7,12,22,0.85); backdrop-filter:blur(8px); border-top:1px solid #0c1e30; }
+        #reader-img-wrap { transition: opacity 0.2s ease; }
+        button { touch-action: manipulation; }
+        @media (max-width: 639px) {
+            #reader-slider { height: 8px; padding: 12px 0; box-sizing: content-box; }
+        }
+        .sync-bar {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 6px 0;
+            font-family: 'Rajdhani', sans-serif;
+            font-size: 9px;
+            font-weight: 600;
+            letter-spacing: 0.1em;
+            text-transform: uppercase;
+            color: rgba(232,240,248,0.25);
+        }
+        .sync-bar .dot { width: 5px; height: 5px; border-radius: 50%; background: #00ff99; box-shadow: 0 0 4px rgba(0,255,153,0.5); }
+    </style>
+</head>
+<body class="h-full bg-bg text-wht font-mono">
+
+<!-- Titlebar -->
+<div class="fixed top-0 left-0 right-0 z-40 bg-panel border-b border-bdr px-4 py-2 flex items-center justify-between"
+     style="padding-top:calc(8px + env(safe-area-inset-top,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px))">
+    <div class="flex items-center gap-3">
+        <a href="/" class="font-raj text-[10px] font-bold tracking-[0.15em] uppercase text-wht hover:text-acc transition-colors">&larr; Home</a>
+        <span class="font-raj text-[10px] font-bold tracking-[0.2em] uppercase text-acc">Journals</span>
+    </div>
+    <div class="flex items-center gap-2">
+        <div class="w-[5px] h-[5px] rounded-full bg-[#00ff99] shadow-[0_0_5px_rgba(0,255,153,0.7)] pulse-dot"></div>
+        <span class="font-raj text-[10px] font-bold tracking-[0.2em] uppercase text-wht" id="status-text"></span>
+    </div>
+</div>
+
+<!-- Bookshelf -->
+<div class="pb-[36px] min-h-screen px-4 py-6" id="bookshelf"
+     style="padding-top:calc(56px + env(safe-area-inset-top,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px))">
+    <div class="text-center py-20 font-raj text-xs text-wht tracking-[0.1em] uppercase">Loading journals...</div>
+</div>
+
+<!-- Gallery (pages of one book) -->
+<div class="pb-[36px] min-h-screen px-3 py-4 hidden" id="gallery"
+     style="padding-top:calc(56px + env(safe-area-inset-top,0px));padding-left:calc(12px + env(safe-area-inset-left,0px));padding-right:calc(12px + env(safe-area-inset-right,0px))">
+</div>
+
+<!-- Fullscreen reader -->
+<div id="reader">
+    <div id="reader-bar" class="flex items-center justify-between px-4 py-2 shrink-0"
+         style="padding-top:calc(8px + env(safe-area-inset-top,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px))">
+        <button onclick="closeReader()" class="font-raj text-[10px] font-bold tracking-[0.1em] uppercase text-wht border border-bdr px-3 py-1 min-h-[44px] min-w-[44px] hover:border-acc transition-colors">X</button>
+        <span class="font-raj text-xs font-bold tracking-[0.1em] uppercase text-acc-b" id="reader-title"></span>
+        <span class="font-mono text-xs text-wht" id="reader-counter"></span>
+    </div>
+    <div class="flex-1 overflow-hidden relative" id="reader-area">
+        <div id="reader-img-wrap" class="w-full h-full">
+            <img id="reader-img" src="" alt="">
+        </div>
+        <div class="absolute left-0 top-0 w-1/3 sm:w-1/4 h-full cursor-pointer z-10" onclick="readerPrev()"></div>
+        <div class="absolute right-0 top-0 w-1/3 sm:w-1/4 h-full cursor-pointer z-10" onclick="readerNext()"></div>
+    </div>
+    <div id="reader-bottom" class="px-4 py-3 sm:py-2 shrink-0" style="padding-bottom:calc(8px + env(safe-area-inset-bottom,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px))">
+        <input type="range" id="reader-slider" min="0" max="0" value="0" class="w-full accent-[#6495ed] h-1 cursor-pointer" style="touch-action:manipulation">
+    </div>
+</div>
+
+<!-- Bottom bar -->
+<div class="fixed bottom-0 left-0 right-0 z-40 bg-panel border-t border-bdr text-wht font-raj text-[9px] font-semibold tracking-[0.15em] uppercase px-4 py-1 flex justify-between"
+     style="padding-bottom:calc(4px + env(safe-area-inset-bottom,0px));padding-left:calc(16px + env(safe-area-inset-left,0px));padding-right:calc(16px + env(safe-area-inset-right,0px))">
+    <span>PROMETHEON v1.0</span>
+    <span id="clock"></span>
+</div>
+
+<script>
+let journals = [];
+let syncedAt = null;
+let currentBookIdx = -1;
+
+// ─── Load ───
+async function loadJournals() {
+    try {
+        const r = await fetch('/api/journals');
+        if (r.ok) {
+            const data = await r.json();
+            journals = data.journals;
+            syncedAt = data.synced_at;
+            renderShelf();
+        }
+    } catch(e) { console.error(e); }
+}
+
+// ─── Bookshelf ───
+function renderShelf() {
+    const el = document.getElementById('bookshelf');
+    const total = journals.length;
+    const withPdf = journals.filter(j => j.has_pdf).length;
+    document.getElementById('status-text').textContent = total + ' notebook' + (total !== 1 ? 's' : '') + ' \u00b7 iCloud';
+
+    if (total === 0) {
+        el.innerHTML = '<div class="text-center py-20 font-raj text-xs text-wht tracking-[0.1em] uppercase">No journals found</div>';
+        return;
+    }
+
+    const viewable = journals.filter(j => j.has_pdf && j.pages > 0);
+
+    let h = '';
+
+    // Minimal sync bar
+    if (syncedAt) {
+        h += `<div class="sync-bar">
+            <span class="dot"></span>
+            <span>synced</span>
+            <button onclick="syncNow(this)" style="color:rgba(232,240,248,0.3);border:none;background:none;font:inherit;cursor:pointer;padding:0 4px">&#x21bb;</button>
+        </div>`;
+    }
+
+    // Bookshelf
+    if (viewable.length > 0) {
+        h += '<div class="flex items-center justify-center min-h-[60vh] overflow-x-auto px-4"><div class="flex gap-6 sm:gap-10" style="min-width:min-content">';
+        viewable.forEach((j, vi) => {
+            const i = journals.indexOf(j);
+            const title = j.display_name || j.name.replace('.pdf', '');
+            const coverUrl = `/api/journals/${encodeURIComponent(j.name)}/page/0?thumb=hq`;
+            h += `<div class="cursor-pointer text-center shrink-0" onclick="openBook(${i})" style="width:min(44vw, 320px)">
+                <div class="journal-card">
+                    <img src="${coverUrl}" alt="${title}">
+                </div>
+                <div class="font-raj text-base font-bold tracking-[0.12em] uppercase text-acc-b mt-4">${title}</div>
+                <div class="font-raj text-xs text-wht/50 tracking-[0.08em] uppercase mt-1">${j.pages} pages</div>
+            </div>`;
+        });
+        h += '</div></div>';
+    }
+
+    el.innerHTML = h;
+}
+
+// ─── Book gallery (pages) ───
+function openBook(idx) {
+    currentBookIdx = idx;
+    const j = journals[idx];
+    const title = j.display_name || j.name.replace('.pdf', '');
+
+    document.getElementById('bookshelf').classList.add('hidden');
+    const gallery = document.getElementById('gallery');
+    gallery.classList.remove('hidden');
+    document.getElementById('status-text').textContent = title;
+
+    let h = `<div class="flex items-center justify-between mb-4">
+        <button onclick="backToShelf()" class="font-raj text-[10px] font-bold tracking-[0.1em] uppercase text-wht border border-bdr px-3 py-1 min-h-[44px] hover:border-acc hover:text-acc transition-colors">&larr; All Books</button>
+        <span class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${title}</span>
+        <span class="font-raj text-[10px] text-wht">${j.pages} pages</span>
+    </div>`;
+
+    h += `<div class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">`;
+    for (let p = j.pages - 1; p >= 1; p--) {
+        const url = `/api/journals/${encodeURIComponent(j.name)}/page/${p}?thumb=hq`;
+        h += `<div class="page-thumb" onclick="openReader(${p})">
+            <img src="${url}" alt="Page ${p+1}" loading="lazy">
+            <div class="text-center font-raj text-[8px] text-wht/50 py-0.5">${p+1}</div>
+        </div>`;
+    }
+    h += `</div>`;
+
+    gallery.innerHTML = h;
+    gallery.scrollTop = 0;
+}
+
+function backToShelf() {
+    currentBookIdx = -1;
+    document.getElementById('gallery').classList.add('hidden');
+    document.getElementById('bookshelf').classList.remove('hidden');
+    const total = journals.length;
+    document.getElementById('status-text').textContent = total + ' notebook' + (total !== 1 ? 's' : '') + ' \u00b7 iCloud';
+}
+
+// ─── Reader ───
+function openReader(page) {
+    const j = journals[currentBookIdx];
+    document.getElementById('reader').classList.add('active');
+    document.getElementById('reader-slider').max = j.pages - 1;
+    document.getElementById('reader-slider').value = page;
+    loadReaderPage(page);
+}
+
+function closeReader() {
+    document.getElementById('reader').classList.remove('active');
+}
+
+function loadReaderPage(pg) {
+    const j = journals[currentBookIdx];
+    if (pg < 0 || pg >= j.pages) return;
+    const img = document.getElementById('reader-img');
+    const wrap = document.getElementById('reader-img-wrap');
+    wrap.style.opacity = '0.3';
+    const url = `/api/journals/${encodeURIComponent(j.name)}/page/${pg}`;
+
+    // Use fetch for auth support in native app, fall back to direct src
+    fetch(url).then(r => r.blob()).then(blob => {
+        img.src = URL.createObjectURL(blob);
+        wrap.style.opacity = '1';
+    }).catch(() => {
+        img.src = url;
+        wrap.style.opacity = '1';
+    });
+
+    _readerPage = pg;
+    const title = j.display_name || j.name.replace('.pdf', '');
+    document.getElementById('reader-title').textContent = title + ' \u2014 pg ' + (pg + 1);
+    document.getElementById('reader-counter').textContent = (pg + 1) + ' / ' + j.pages;
+    document.getElementById('reader-slider').value = pg;
+
+    // Preload next via fetch
+    if (pg + 1 < j.pages) {
+        fetch(`/api/journals/${encodeURIComponent(j.name)}/page/${pg + 1}`).catch(() => {});
+    }
+}
+
+let _readerPage = 0;
+function readerPrev() { loadReaderPage(_readerPage - 1); }
+function readerNext() { loadReaderPage(_readerPage + 1); }
+
+document.getElementById('reader-slider').addEventListener('input', (e) => {
+    loadReaderPage(parseInt(e.target.value));
+});
+
+// Keyboard
+document.addEventListener('keydown', (e) => {
+    if (document.getElementById('reader').classList.contains('active')) {
+        if (e.key === 'ArrowLeft') readerPrev();
+        if (e.key === 'ArrowRight') readerNext();
+        if (e.key === 'Escape') closeReader();
+    } else if (!document.getElementById('gallery').classList.contains('hidden')) {
+        if (e.key === 'Escape') backToShelf();
+    }
+});
+
+// Swipe
+let _rTouchX = 0;
+document.getElementById('reader-area').addEventListener('touchstart', (e) => { _rTouchX = e.touches[0].clientX; });
+document.getElementById('reader-area').addEventListener('touchmove', (e) => {
+    if (Math.abs(e.touches[0].clientX - _rTouchX) > Math.abs(e.touches[0].clientY - (e.touches[0].clientY))) e.preventDefault();
+}, { passive: false });
+document.getElementById('reader-area').addEventListener('touchend', (e) => {
+    const dx = e.changedTouches[0].clientX - _rTouchX;
+    if (Math.abs(dx) > 60) { dx > 0 ? readerPrev() : readerNext(); }
+});
+
+// ─── Sync ───
+async function syncNow(btn) {
+    btn.textContent = 'syncing...';
+    btn.disabled = true;
+    try {
+        const r = await fetch('/api/journals/sync?export=1', { method: 'POST' });
+        const data = await r.json();
+        if (data.exported && data.exported.length > 0) {
+            btn.textContent = 'exported ' + data.exported.join(', ');
+            setTimeout(() => { btn.textContent = 'sync'; }, 3000);
+        }
+        await loadJournals();
+    } catch(e) { console.error(e); }
+    btn.textContent = 'sync';
+    btn.disabled = false;
+}
+
+// Clock
+function tick() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+tick(); setInterval(tick, 1000);
+
+loadJournals();
+</script>
+</body>
+</html>

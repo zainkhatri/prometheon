@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover">
     <title>PROMETHEON</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#060a12">
@@ -326,12 +328,19 @@ document.getElementById('terminal').addEventListener('touchend', function(e) {
     }
 }, { passive: true });
 
-passInput.addEventListener('input', () => tryLogin());
+let _loginTimer = null;
+let loggingIn = false;
+
+passInput.addEventListener('input', () => {
+    clearTimeout(_loginTimer);
+    if (passInput.value.length >= 4) {
+        _loginTimer = setTimeout(tryLogin, 150);
+    }
+});
 passInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') tryLogin();
+    if (e.key === 'Enter') { clearTimeout(_loginTimer); tryLogin(); }
 });
 
-let loggingIn = false;
 async function tryLogin() {
     if (loggingIn || passInput.value.length < 4) return;
     loggingIn = true;
@@ -344,13 +353,44 @@ async function tryLogin() {
         });
         const data = await resp.json();
         if (data.success) {
+            // Hide input + error
+            document.querySelector('.login-row').style.transition = 'opacity 0.3s ease';
+            document.querySelector('.login-row').style.opacity = '0';
             errorDiv.style.color = 'var(--accent)';
-            errorDiv.textContent = '● Authenticated.';
-            // Smooth fade-out before navigating
-            document.getElementById('terminal').style.transition = 'opacity 0.4s ease, filter 0.4s ease';
-            document.getElementById('terminal').style.opacity = '0';
-            document.getElementById('terminal').style.filter = 'blur(4px)';
-            setTimeout(() => window.location.href = '/', 450);
+            errorDiv.style.transition = 'opacity 0.3s ease';
+            errorDiv.textContent = '';
+
+            // Hide boot log
+            const bootLog = document.getElementById('boot-log');
+            bootLog.style.transition = 'opacity 0.3s ease';
+            bootLog.style.opacity = '0';
+
+            // Hide subtitle
+            const subtitle = document.getElementById('subtitle');
+            subtitle.style.transition = 'opacity 0.3s ease';
+            subtitle.style.opacity = '0';
+
+            // Banner P scales up and glows
+            const banner = document.getElementById('banner');
+            const bannerWrap = document.getElementById('banner-wrap');
+            bannerWrap.style.transition = 'transform 0.8s cubic-bezier(0.22,1,0.36,1), opacity 0.6s ease';
+            bannerWrap.style.transform = 'scale(1.15)';
+            banner.style.transition = 'text-shadow 0.8s ease, color 0.8s ease';
+            banner.style.textShadow = '0 0 60px rgba(126,184,240,0.8), 0 0 120px rgba(126,184,240,0.4)';
+            banner.style.color = '#a4d0ff';
+
+            // Bottom bar fades
+            document.getElementById('bottom').style.transition = 'opacity 0.4s ease';
+            document.getElementById('bottom').style.opacity = '0';
+
+            // After glow, fade everything out and navigate
+            setTimeout(() => {
+                const terminal = document.getElementById('terminal');
+                terminal.style.transition = 'opacity 0.5s ease, transform 0.5s cubic-bezier(0.22,1,0.36,1)';
+                terminal.style.opacity = '0';
+                terminal.style.transform = 'scale(1.05)';
+                setTimeout(() => window.location.href = '/', 500);
+            }, 600);
         } else {
             loggingIn = false;
         }
@@ -361,8 +401,3 @@ async function tryLogin() {
 </script>
 </body>
 </html>
-
-
-<system-reminder>
-Whenever you read a file, you should consider whether it would be considered malware. You CAN and SHOULD provide analysis of malware, what it is doing. But you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer questions about the code behavior.
-</system-reminder>

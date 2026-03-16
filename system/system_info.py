@@ -10,9 +10,10 @@ import psutil
 from datetime import timedelta
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-FOLDER_CACHE_FILE = os.path.join(SCRIPT_DIR, ".folder_sizes.json")
-DISK_CACHE_FILE = os.path.join(SCRIPT_DIR, ".disk_stats.json")
-NAS_DRIVES_FILE = os.path.join(SCRIPT_DIR, ".nas_drives.json")
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+FOLDER_CACHE_FILE = os.path.join(PROJECT_ROOT, ".folder_sizes.json")
+DISK_CACHE_FILE = os.path.join(PROJECT_ROOT, ".disk_stats.json")
+NAS_DRIVES_FILE = os.path.join(PROJECT_ROOT, ".nas_drives.json")
 DISK_CACHE_TTL = 60  # seconds
 
 IS_MAC = sys.platform == "darwin"
@@ -325,6 +326,78 @@ def _get_cpu_temp():
         return None
 
 
+MORDOR_STATE_FILE = os.path.join(POOL_ROOT, "MORDOR", "server_schedule.log")
+
+
+def _get_mordor_status() -> dict:
+    """Check if the MORDOR Minecraft server is running."""
+    status = {"online": False, "duration": "—"}
+
+    try:
+        # Check PID file first, then fall back to process scan
+        pid_file = os.path.join(POOL_ROOT, "MORDOR", "server.pid")
+        is_running = False
+        if os.path.exists(pid_file):
+            with open(pid_file) as f:
+                pid = int(f.read().strip())
+            try:
+                os.kill(pid, 0)
+                is_running = True
+            except (OSError, ProcessLookupError):
+                pass
+        if not is_running:
+            result = subprocess.run(
+                ["pgrep", "-f", "forge-1.7.10.*universal.jar"],
+                capture_output=True, text=True, timeout=5
+            )
+            is_running = result.returncode == 0
+    except Exception:
+        is_running = False
+
+    status["online"] = is_running
+
+    # Calculate duration from the schedule log
+    try:
+        log_path = MORDOR_STATE_FILE
+        if os.path.exists(log_path):
+            with open(log_path, "r") as f:
+                lines = f.readlines()
+            # Find last start or stop event
+            last_event = None
+            last_time = None
+            for line in reversed(lines):
+                if "starting server" in line.lower() or "Starting Minecraft" in line:
+                    last_event = "start"
+                    last_time = line.split("]")[0].lstrip("[").strip()
+                    break
+                elif "stopped" in line.lower() or "Stopping Minecraft" in line:
+                    last_event = "stop"
+                    last_time = line.split("]")[0].lstrip("[").strip()
+                    break
+
+            if last_time:
+                from datetime import datetime
+                try:
+                    event_dt = datetime.strptime(last_time, "%Y-%m-%d %H:%M:%S")
+                    delta = datetime.now() - event_dt
+                    total_secs = int(delta.total_seconds())
+                    if total_secs < 0:
+                        total_secs = 0
+                    hours, rem = divmod(total_secs, 3600)
+                    minutes = rem // 60
+                    parts = []
+                    if hours:
+                        parts.append(f"{hours}h")
+                    parts.append(f"{minutes}m")
+                    status["duration"] = " ".join(parts)
+                except (ValueError, TypeError):
+                    pass
+    except Exception:
+        pass
+
+    return status
+
+
 def get_system_info() -> dict:
     """Gather system information for display."""
     # OS info
@@ -397,4 +470,5 @@ def get_system_info() -> dict:
         "uptime": uptime_str,
         "disks": disks,
         "python": platform.python_version(),
+        "mordor": _get_mordor_status(),
     }

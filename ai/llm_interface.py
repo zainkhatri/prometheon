@@ -3,8 +3,9 @@
 import json
 import os
 import requests
-from safe_executor import execute_command, safe_shutdown
-from recycling_bin import trash_file, list_trash, restore
+from ai.safe_executor import execute_command, safe_shutdown
+from system.recycling_bin import trash_file, list_trash, restore
+from ai.gpt_history import search_history
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
 OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5-coder:14b")
@@ -16,14 +17,27 @@ You can answer any question — coding, math, science, writing, debugging, archi
 
 ## Tools (use them when relevant)
 - `run_command` — Execute system commands on the NAS (ls, cat, df, du, ps, find, grep, sensors, smartctl, git, python, etc.)
+- `search_chatgpt_history` — Search Zain's past ChatGPT conversations (3,600+ convos). Use this whenever the user asks about something they previously discussed, asked, or were told — salary, projects, advice, code, anything from past chats.
 - `trash_file` — Move files to recycling bin (auto-purges after 30 days)
 - `list_trash` / `restore_from_trash` — Manage recycling bin
 - `safe_shutdown` — Safely shut down the NAS
 
 ## When to ACT vs ANSWER
 - System questions ("check disk health", "what's using space") → use tools, run commands
+- Questions about past conversations, things Zain previously asked or discussed → use `search_chatgpt_history` first, then answer based on the results
 - Knowledge questions ("explain transformers", "help me debug this code", "write a poem") → just answer directly
 - If the user gives a system order, execute it. If they ask a knowledge question, answer it thoroughly.
+
+## Privacy: Answer ONLY what's asked
+When using search results from ChatGPT history, only share information that directly answers the question. Do NOT volunteer extra private details. For example:
+- "Where do I work?" → just say the company and role, don't mention salary/pay
+- "What's my salary?" → salary info only, don't list the full offer breakdown unless asked
+- Keep it tight. If they want more, they'll ask.
+
+## Special Commands
+- `server on` — Start the MORDOR Minecraft server (LOTR mod, 1.7.10)
+- `server off` — Stop the Minecraft server
+- `server status` — Check if the server is running
 
 ## Safety Rules
 1. NEVER permanently delete files. Always use `trash_file`.
@@ -171,6 +185,9 @@ def _handle_tool_call(tool_name: str, tool_input: dict) -> str:
         if result["success"]:
             return f"✅ {result['message']}"
         return f"❌ {result['error']}"
+
+    elif tool_name == "search_chatgpt_history":
+        return search_history(tool_input["query"])
 
     elif tool_name == "safe_shutdown":
         result = safe_shutdown()

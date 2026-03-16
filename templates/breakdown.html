@@ -1,0 +1,905 @@
+<!DOCTYPE html>
+<html lang="en" class="bg-[#04070d]">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>PROMETHEON — Breakdown</title>
+    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="theme-color" content="#04070d">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+    <script>
+    tailwind.config = {
+        theme: {
+            extend: {
+                colors: {
+                    bg: '#04070d',
+                    panel: '#070c16',
+                    bdr: '#0c1e30',
+                    acc: '#6495ed',
+                    'acc-b': '#9ab5f5',
+                    'acc-d': '#111d40',
+                    wht: '#e8f0f8',
+                    gry: '#2d4a60',
+                    drk: '#152030',
+                    grn: '#00ff99',
+                    ylw: '#f0c040',
+                    rd: '#ff4a6e',
+                    org: '#e0872e',
+                    prp: '#a78bfa',
+                    pnk: '#f472b6',
+                },
+                fontFamily: {
+                    mono: ['JetBrains Mono', 'monospace'],
+                    raj: ['Rajdhani', 'sans-serif'],
+                },
+            }
+        }
+    }
+    </script>
+    <style>
+        @keyframes pulse-dot { 0%,100%{opacity:1} 50%{opacity:0.3} }
+        .pulse-dot { animation: pulse-dot 2.5s ease-in-out infinite; }
+        .modal-bg { display:none; }
+        .modal-bg.show { display:flex; }
+        /* Mobile tap targets: prevent 300ms delay */
+        button { touch-action: manipulation; }
+        /* On very small screens, let calendar grid scroll */
+        @media (max-width: 639px) {
+            #cal-grid { auto-rows: minmax(70px, auto); }
+        }
+    </style>
+</head>
+<body class="h-full bg-bg text-wht font-mono">
+
+<div class="flex flex-col min-h-screen lg:h-screen lg:overflow-hidden">
+    <!-- Titlebar -->
+    <div class="bg-panel border-b border-bdr px-4 py-2 flex items-center justify-between shrink-0"
+         style="padding-top:calc(8px + env(safe-area-inset-top,0px))">
+        <div class="flex items-center gap-3">
+            <a href="/" class="font-raj text-[10px] font-bold tracking-[0.15em] uppercase text-wht hover:text-acc transition-colors">&larr; Home</a>
+            <span class="font-raj text-[10px] font-bold tracking-[0.2em] uppercase text-acc">Breakdown</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <div class="w-[5px] h-[5px] rounded-full bg-grn shadow-[0_0_5px_rgba(0,255,153,0.7)] pulse-dot"></div>
+            <span class="font-raj text-[10px] font-bold tracking-[0.2em] uppercase text-wht">Budget Allocator</span>
+        </div>
+    </div>
+
+    <!-- Main -->
+    <div class="flex-1 flex flex-col overflow-visible lg:overflow-hidden p-3"
+         style="padding-left:calc(12px + env(safe-area-inset-left,0px));padding-right:calc(12px + env(safe-area-inset-right,0px));
+                background-image:linear-gradient(rgba(100,149,237,0.02) 1px,transparent 1px),linear-gradient(90deg,rgba(100,149,237,0.02) 1px,transparent 1px);background-size:40px 40px;">
+
+        <!-- Year Nav -->
+        <div class="flex items-center justify-center gap-2 sm:gap-4 mb-3 shrink-0">
+            <button onclick="navYear(-1)" class="bg-acc-d border border-bdr text-acc font-raj text-xs font-bold px-3 py-1 min-h-[44px] min-w-[44px] flex items-center justify-center hover:border-acc transition-colors">&larr;</button>
+            <span class="font-raj text-base font-bold tracking-[0.15em] text-acc-b cursor-pointer hover:text-wht transition-colors" id="year-label" onclick="closeDetail()"></span>
+            <button onclick="navYear(1)" class="bg-acc-d border border-bdr text-acc font-raj text-xs font-bold px-3 py-1 min-h-[44px] min-w-[44px] flex items-center justify-center hover:border-acc transition-colors">&rarr;</button>
+            <button onclick="closeDetail()" class="bg-acc-d border border-bdr text-acc font-raj text-[10px] font-bold px-3 py-1 min-h-[44px] hover:border-acc transition-colors tracking-[0.1em] uppercase hidden sm:block">Dashboard</button>
+        </div>
+
+        <!-- Layout: calendar + detail stacked on mobile, side-by-side on desktop -->
+        <div class="flex-1 flex flex-col lg:flex-row gap-3 min-h-0 lg:overflow-hidden">
+
+            <!-- Calendar Grid -->
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 auto-rows-min sm:grid-rows-3 gap-2 lg:flex-1 lg:overflow-hidden shrink-0" id="cal-grid"></div>
+
+            <!-- Detail Panel — no inner scroll on mobile, page scrolls naturally -->
+            <div class="bg-panel border border-bdr px-4 py-3 lg:overflow-y-auto lg:w-[360px] lg:shrink-0 flex flex-col" id="detail-panel"></div>
+        </div>
+    </div>
+
+    <!-- Bottom -->
+    <div class="bg-panel border-t border-bdr text-wht font-raj text-[9px] font-semibold tracking-[0.15em] uppercase px-4 py-1 flex justify-between shrink-0"
+         style="padding-bottom:calc(4px + env(safe-area-inset-bottom,0px))">
+        <span>PROMETHEON v1.0</span>
+        <span id="clock"></span>
+    </div>
+</div>
+
+<!-- Modal -->
+<div class="modal-bg fixed inset-0 bg-bg/85 z-50 items-center justify-center p-5" id="modal">
+    <div class="bg-panel border border-bdr w-full max-w-[360px]">
+        <div class="px-5 py-4 border-b border-bdr font-raj text-xs font-bold tracking-[0.15em] uppercase text-acc-b" id="modal-title">Enter Income</div>
+        <div class="p-5 space-y-4">
+            <div>
+                <div class="font-raj text-[10px] font-bold tracking-[0.12em] uppercase text-wht mb-1.5">FAI Income</div>
+                <input type="number" class="w-full bg-bg border border-bdr text-acc-b font-mono text-lg px-3 py-2.5 outline-none focus:border-acc transition-colors" id="inp-further" placeholder="0" inputmode="decimal">
+            </div>
+            <div>
+                <div class="font-raj text-[10px] font-bold tracking-[0.12em] uppercase text-wht mb-1.5">Idler Income</div>
+                <input type="number" class="w-full bg-bg border border-bdr text-acc-b font-mono text-lg px-3 py-2.5 outline-none focus:border-acc transition-colors" id="inp-idler" placeholder="0" inputmode="decimal">
+            </div>
+        </div>
+        <div class="flex gap-2 px-5 pb-5">
+            <button onclick="closeModal()" class="flex-1 py-2.5 font-raj text-xs font-bold tracking-[0.12em] uppercase border border-bdr text-wht hover:border-wht/50 hover:text-wht transition-colors">Cancel</button>
+            <button onclick="saveEntry()" class="flex-1 py-2.5 font-raj text-xs font-bold tracking-[0.12em] uppercase bg-acc-d border border-acc text-acc-b hover:bg-acc/15 transition-colors">Save</button>
+        </div>
+    </div>
+</div>
+
+<!-- Portfolio Modal -->
+<div class="modal-bg fixed inset-0 bg-bg/85 z-50 items-center justify-center p-5" id="portfolio-modal">
+    <div class="bg-panel border border-bdr w-full max-w-[360px]">
+        <div class="px-5 py-4 border-b border-bdr font-raj text-xs font-bold tracking-[0.15em] uppercase text-acc-b">Add Holding</div>
+        <div class="p-5 space-y-4">
+            <div>
+                <div class="font-raj text-[10px] font-bold tracking-[0.12em] uppercase text-wht mb-1.5">Ticker</div>
+                <input type="text" class="w-full bg-bg border border-bdr text-acc-b font-mono text-lg px-3 py-2.5 outline-none focus:border-acc transition-colors uppercase" id="inp-ticker" placeholder="VOO">
+            </div>
+            <div>
+                <div class="font-raj text-[10px] font-bold tracking-[0.12em] uppercase text-wht mb-1.5">Shares</div>
+                <input type="number" class="w-full bg-bg border border-bdr text-acc-b font-mono text-lg px-3 py-2.5 outline-none focus:border-acc transition-colors" id="inp-shares" placeholder="0" inputmode="decimal" step="any">
+            </div>
+            <div>
+                <div class="font-raj text-[10px] font-bold tracking-[0.12em] uppercase text-wht mb-1.5">Cost Basis (per share)</div>
+                <input type="number" class="w-full bg-bg border border-bdr text-acc-b font-mono text-lg px-3 py-2.5 outline-none focus:border-acc transition-colors" id="inp-costbasis" placeholder="0" inputmode="decimal" step="any">
+            </div>
+        </div>
+        <div class="flex gap-2 px-5 pb-5">
+            <button onclick="closePortfolioModal()" class="flex-1 py-2.5 font-raj text-xs font-bold tracking-[0.12em] uppercase border border-bdr text-wht hover:border-wht/50 hover:text-wht transition-colors">Cancel</button>
+            <button onclick="saveHolding()" class="flex-1 py-2.5 font-raj text-xs font-bold tracking-[0.12em] uppercase bg-acc-d border border-acc text-acc-b hover:bg-acc/15 transition-colors">Save</button>
+        </div>
+    </div>
+</div>
+
+<script>
+const MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const MO_FULL = ['January','February','March','April','May','June','July','August','September','October','November','December'];
+const CATS = {
+    bart:   {label:'BART',    color:'#3a5070'},
+    roth:   {label:'Roth',    color:'#3a5070'},
+    mama:   {label:'Mama',    color:'#f472b6'},
+    life:   {label:'Checkings', color:'#f0c040'},
+    savings:{label:'Savings', color:'#00ff99'},
+};
+
+let allEntries = [];
+let viewYear = new Date().getFullYear();
+let detailView = null;
+let modalTarget = null;
+
+// ─── Allocation ───
+// BART + Roth are already deducted from paycheck. We only split what's left:
+// Priority: gas (fixed) → mama → life (checkings) → savings (maximized, $100 increments)
+function allocate(total, mamaTarget, bartAmt, rothAmt) {
+    const a = { bart: bartAmt, roth: rothAmt };
+    let left = total;
+
+    // Mama: as close to target as possible
+    a.mama = Math.min(mamaTarget, Math.max(0, left));
+    left -= a.mama;
+
+    // Checkings gets the majority. Savings gets whatever's left, in $100 increments.
+    if (left <= 0) {
+        a.life = 0; a.savings = 0;
+    } else {
+        const rawSavings = left * 0.4;
+        a.savings = Math.max(0, Math.floor(rawSavings / 100) * 100);
+        a.life = Math.round(left - a.savings);
+    }
+
+    return { bart:a.bart, roth:a.roth, mama:a.mama, life:a.life, savings:a.savings };
+}
+
+function hasBartRoth(mk) {
+    // BART and Roth started March 2026
+    return mk >= '2026-03';
+}
+
+// BART: ($5.10 × 2 + $7.20 parking) × work days = $17.40/day
+// Biweek = 10 days = $174, Month = 20 days = $348
+function computeAlloc(total, hasIdler, mk) {
+    const br = hasBartRoth(mk);
+    return allocate(total, 2000, br ? 348 : 0, br ? 400 : 0);
+}
+
+function computeAllocHalf(income, hasIdler, mk) {
+    const br = hasBartRoth(mk);
+    return allocate(income, 1000, br ? 174 : 0, br ? 200 : 0);
+}
+
+// Grade based on Idler income relative to historical Idler data
+// Best: top third. Mid: middle third. Worst: bottom third.
+function gradeIdler(idlerAmount, isMonthly) {
+    const idlerChecks = allEntries.filter(e => (e.idler||0) > 0).map(e => e.idler);
+    if (idlerChecks.length === 0) return 'mid';
+    const sorted = [...idlerChecks].sort((a,b) => a-b);
+    const max = sorted[sorted.length-1];
+    const min = sorted[0];
+    if (max === min) return 'mid';
+    // For monthly, compare against sum of 2 biweeks
+    const amt = isMonthly ? idlerAmount / 2 : idlerAmount; // normalize to per-biweek
+    const pct = (amt - min) / (max - min); // 0 = worst ever, 1 = best ever
+    if (pct >= 0.6) return 'best';
+    if (pct >= 0.3) return 'mid';
+    return 'worst';
+}
+
+// ─── Data ───
+function getHalf(mk, h) { return allEntries.find(e => e.id === mk+'-H'+h); }
+function monthTotal(mk) { return allEntries.filter(e => e.id?.startsWith(mk)).reduce((s,e) => s+(e.furtherAI||0)+(e.idler||0), 0); }
+function monthHasIdler(mk) { return allEntries.filter(e => e.id?.startsWith(mk)).some(e => (e.idler||0) > 0); }
+
+// ─── Year nav ───
+function navYear(d) { viewYear += d; render(); }
+
+// ─── Render ───
+function render() {
+    document.getElementById('year-label').textContent = viewYear;
+    const now = new Date(), curY = now.getFullYear(), curM = now.getMonth();
+    const grid = document.getElementById('cal-grid');
+    let html = '';
+
+    for (let m = 0; m < 12; m++) {
+        const mk = `${viewYear}-${String(m+1).padStart(2,'0')}`;
+        const h1 = getHalf(mk,1), h2 = getHalf(mk,2);
+        const total = monthTotal(mk);
+
+        const isSelected = detailView && (detailView.mk === mk);
+        const border = isSelected ? 'border-acc/30' : 'border-bdr';
+
+        html += `<div class="bg-panel border ${border} overflow-hidden flex flex-col">`;
+        // Month header — click for full month view
+        html += `<div class="flex justify-between items-center px-3 py-2 shrink-0 cursor-pointer hover:bg-acc/[0.03] transition-colors" onclick="showMonthDetail('${mk}')">
+            <span class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${MO[m]}</span>
+            <span class="font-mono text-xs ${total>0?'text-grn group/amt cursor-default':'text-wht/25'}">${total>0?'<span class="group-hover/amt:hidden">$$$</span><span class="hidden group-hover/amt:inline">$'+total.toLocaleString()+'</span>':'—'}</span>
+        </div>`;
+        // Two biweek boxes
+        html += `<div class="grid grid-cols-2 border-t border-bdr flex-1">`;
+        html += halfCell(mk, 1, h1);
+        html += halfCell(mk, 2, h2);
+        html += `</div>`;
+        html += `</div>`;
+    }
+    grid.innerHTML = html;
+
+    if (detailView?.mk.startsWith(String(viewYear))) renderDetail();
+    else renderDetailEmpty();
+}
+
+function halfCell(mk, half, entry) {
+    const lbl = half===1 ? '1st' : '2nd';
+    if (!entry) {
+        return `<div class="px-2.5 py-2 cursor-pointer hover:bg-acc/[0.03] transition-colors ${half===1?'border-r border-bdr':''} flex flex-col items-center justify-center" onclick="openModal('${mk}',${half})">
+            <div class="font-raj text-[8px] font-bold tracking-[0.1em] uppercase text-wht">${lbl} Half</div>
+        </div>`;
+    }
+    const f = entry.furtherAI||0, id = entry.idler||0, t = f+id;
+    return `<div class="px-2.5 py-2 cursor-pointer hover:bg-acc/[0.03] transition-colors ${half===1?'border-r border-bdr':''} flex flex-col items-center justify-center" onclick="showHalfDetail('${mk}',${half})">
+        <div class="font-raj text-[8px] font-bold tracking-[0.1em] uppercase text-wht mb-0.5">${lbl} Half</div>
+        <div class="font-mono text-sm font-semibold text-acc-b leading-tight group/val cursor-default"><span class="group-hover/val:hidden">$$$</span><span class="hidden group-hover/val:inline">$${t.toLocaleString()}</span></div>
+        <div class="font-raj text-[7px] text-wht tracking-[0.04em] uppercase mt-0.5">FAI <span class="text-acc">$${f.toLocaleString()}</span>${id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':''}</div>
+    </div>`;
+}
+
+// ─── Detail ───
+function renderDetailEmpty() {
+    renderYearSummary();
+}
+
+function closeDetail() { detailView = null; renderYearSummary(); render(); }
+
+function renderYearSummary() {
+    const panel = document.getElementById('detail-panel');
+    const yr = viewYear;
+    let yearAI = 0, yearIdler = 0, monthData = [];
+
+    for (let m = 0; m < 12; m++) {
+        const mk = `${yr}-${String(m+1).padStart(2,'0')}`;
+        const h1 = getHalf(mk,1), h2 = getHalf(mk,2);
+        const ai = (h1?.furtherAI||0) + (h2?.furtherAI||0);
+        const id = (h1?.idler||0) + (h2?.idler||0);
+        yearAI += ai;
+        yearIdler += id;
+        if (ai > 0 || id > 0) monthData.push({ m, mk, ai, id, total: ai+id, grade: gradeIdler(id, true) });
+    }
+
+    const yearTotal = yearAI + yearIdler;
+    const idlerStats = getIdlerStats();
+    const gradeColors = { worst:'text-rd', mid:'text-org', best:'text-grn' };
+    const gradeLabels = { worst:'Rough', mid:'Decent', best:'Great' };
+
+    // Compute extra stats
+    const monthsWithData = monthData.length;
+    const avgMonthly = monthsWithData > 0 ? yearTotal / monthsWithData : 0;
+    const yearSavings = allEntries.filter(e => e.monthKey?.startsWith(String(yr))).reduce((s,e) => {
+        const inc = (e.furtherAI||0)+(e.idler||0);
+        const a = applyCustom(computeAllocHalf(inc, (e.idler||0)>0, e.monthKey), e);
+        return s + (a.savings||0);
+    }, 0);
+    const portfolioValue = portfolio.holdings.reduce((s,h) => s + (stockPrices[h.ticker]?.c||0) * h.shares, 0);
+
+    let h = `<div class="mb-3 pb-2 border-b border-bdr">
+        <div class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${yr} Overview</div>
+    </div>`;
+
+    if (monthData.length === 0) {
+        h += `<div class="text-center py-8 text-wht font-raj text-xs tracking-[0.1em] uppercase">No data yet</div>`;
+        h += renderPortfolioSection();
+        panel.innerHTML = h;
+        return;
+    }
+
+    // ── Dashboard Cards ──
+    h += `<div class="grid grid-cols-2 gap-2 mb-3">`;
+    h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
+        <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Earned YTD</div>
+        <div class="font-mono text-base font-bold text-wht">$${Math.round(yearTotal).toLocaleString()}</div>
+    </div>`;
+    h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
+        <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Avg / Month</div>
+        <div class="font-mono text-base font-bold text-wht">$${Math.round(avgMonthly).toLocaleString()}</div>
+    </div>`;
+    h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
+        <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Saved YTD</div>
+        <div class="font-mono text-base font-bold text-grn">$${Math.round(yearSavings).toLocaleString()}</div>
+    </div>`;
+    h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
+        <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Portfolio</div>
+        <div class="font-mono text-base font-bold text-acc-b">$${Math.round(portfolioValue).toLocaleString()}</div>
+    </div>`;
+    h += `</div>`;
+
+    // ── Income Bar Chart ──
+    const maxIncome = Math.max(...monthData.map(d => d.total), 1);
+    h += `<div class="mb-3 pb-3 border-b border-bdr/50">`;
+    h += `<div class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-wht mb-2">Monthly Income</div>`;
+    h += `<div class="flex items-end gap-1" style="height:80px">`;
+    for (let m = 0; m < 12; m++) {
+        const md = monthData.find(d => d.m === m);
+        if (!md) {
+            h += `<div class="flex-1 flex flex-col items-center justify-end h-full">
+                <div class="w-full bg-bdr/30 rounded-t" style="height:2px"></div>
+                <div class="font-raj text-[7px] text-wht/30 uppercase mt-1">${MO[m][0]}</div>
+            </div>`;
+            continue;
+        }
+        const aiH = Math.max(1, (md.ai / maxIncome) * 70);
+        const idH = Math.max(md.id > 0 ? 1 : 0, (md.id / maxIncome) * 70);
+        const totalH = aiH + idH;
+        h += `<div class="flex-1 flex flex-col items-center justify-end h-full cursor-pointer" onclick="showMonthDetail('${md.mk}')">
+            <div class="w-full flex flex-col justify-end rounded-t overflow-hidden" style="height:${totalH}px">
+                ${md.id > 0 ? `<div class="w-full bg-prp" style="height:${idH}px"></div>` : ''}
+                ${md.ai > 0 ? `<div class="w-full bg-acc" style="height:${aiH}px"></div>` : ''}
+            </div>
+            <div class="font-raj text-[7px] text-wht uppercase mt-1">${MO[m][0]}</div>
+        </div>`;
+    }
+    h += `</div>`;
+    h += `<div class="flex items-center gap-3 mt-1.5">
+        <div class="flex items-center gap-1"><div class="w-2 h-2 bg-acc rounded-sm"></div><span class="font-raj text-[7px] text-wht uppercase">FAI</span></div>
+        <div class="flex items-center gap-1"><div class="w-2 h-2 bg-prp rounded-sm"></div><span class="font-raj text-[7px] text-wht uppercase">IDL</span></div>
+    </div>`;
+    h += `</div>`;
+
+    // ── IDL Stats ──
+    if (idlerStats) {
+        h += `<div class="mb-3 pb-2.5 border-b border-bdr/50">`;
+        h += `<div class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-wht mb-1.5">IDL per Biweek</div>`;
+        h += `<div class="grid grid-cols-3 gap-2 text-center">`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">High</div><div class="font-mono text-xs font-bold text-grn">$${Math.round(idlerStats.max).toLocaleString()}</div></div>`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Avg</div><div class="font-mono text-xs font-bold text-org">$${Math.round(idlerStats.avg).toLocaleString()}</div></div>`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Low</div><div class="font-mono text-xs font-bold text-rd">$${Math.round(idlerStats.min).toLocaleString()}</div></div>`;
+        h += `</div></div>`;
+    }
+
+    // ── Month List ──
+    h += `<div class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-wht mb-1.5">Months</div>`;
+    for (const md of monthData) {
+        h += `<div class="flex items-center justify-between py-1.5 border-b border-bdr/30 cursor-pointer hover:bg-acc/[0.03] transition-colors" onclick="showMonthDetail('${md.mk}')">
+            <div class="flex items-center gap-2">
+                <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-acc-b w-[32px]">${MO[md.m]}</span>
+                <span class="font-raj text-[9px] font-bold tracking-[0.08em] uppercase ${gradeColors[md.grade]}">${gradeLabels[md.grade]}</span>
+            </div>
+            <div class="flex items-center gap-3">
+                ${md.id > 0 ? `<span class="font-mono text-[10px] text-prp">IDL $${Math.round(md.id).toLocaleString()}</span>` : ''}
+                <span class="font-mono text-xs font-bold text-wht">$${Math.round(md.total).toLocaleString()}</span>
+            </div>
+        </div>`;
+    }
+
+    // Investments
+    h += renderPortfolioSection();
+
+    panel.innerHTML = h;
+}
+
+function showMonthDetail(mk) {
+    if (detailView?.mk === mk && !detailView.half) { closeDetail(); return; }
+    detailView = { mk };
+    renderDetail();
+}
+
+function showHalfDetail(mk, half) {
+    if (detailView?.mk === mk && detailView.half === half) { closeDetail(); return; }
+    detailView = { mk, half };
+    renderDetail();
+}
+
+function applyCustom(alloc, entry) {
+    if (!entry) return alloc;
+    const a = { ...alloc };
+    const pool = a.mama + a.life + a.savings;
+    if (entry.customSavings !== undefined) a.savings = entry.customSavings;
+    if (entry.customMama !== undefined) a.mama = entry.customMama;
+    a.life = Math.max(0, Math.round(pool - a.savings - a.mama));
+    return a;
+}
+
+function renderDetail() {
+    const panel = document.getElementById('detail-panel');
+    if (!detailView) { renderDetailEmpty(); return; }
+    const mk = detailView.mk;
+    const m = parseInt(mk.split('-')[1])-1, y = parseInt(mk.split('-')[0]);
+    const h1 = getHalf(mk,1), h2 = getHalf(mk,2);
+    const total = monthTotal(mk);
+
+    if (detailView.half) {
+        // ── Single biweek view ──
+        const half = detailView.half;
+        const entry = getHalf(mk, half);
+        const label = half===1 ? '1st Half' : '2nd Half';
+        if (!entry) {
+            panel.innerHTML = detailHead(`${MO_FULL[m]} — ${label}`, null, null, mk, half) +
+                `<div class="text-center py-8 text-wht font-raj text-xs tracking-[0.1em] uppercase">No data — click to enter</div>`;
+            return;
+        }
+        const f = entry.furtherAI||0, id = entry.idler||0, income = f+id;
+        const alloc = applyCustom(computeAllocHalf(income, id>0, mk), entry);
+        const gross = income + alloc.bart + alloc.roth;
+        const sc = gradeIdler(id, false);
+
+        let html = `<div class="shrink-0">`;
+        html += detailHead(`${MO[m]} ${label}`, `<span class="text-acc-b">$${income.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc, mk, half);
+        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">FAI <span class="text-acc">$${f.toLocaleString()}</span>${id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':''}</div>`;
+        html += `</div>`;
+        html += `<div class="flex-1 flex flex-col min-h-0">`;
+        html += renderDonutAndAlloc(alloc, gross, label);
+        const monthComplete = h1 && h2;
+        if (!monthComplete) {
+            html += renderPrediction(mk, income, f, id, sc);
+        }
+        html += renderWhereToSend(alloc);
+        html += `</div>`;
+        panel.innerHTML = html;
+
+    } else {
+        // ── Full month view ──
+        if (total === 0) {
+            panel.innerHTML = detailHead(`${MO_FULL[m]} ${y}`, null, null) +
+                `<div class="text-center py-8 text-wht font-raj text-xs tracking-[0.1em] uppercase">No data — click a half to enter</div>`;
+            return;
+        }
+        const hasIdler = monthHasIdler(mk);
+        // Sum actual per-biweek allocations (respecting custom overrides)
+        const alloc = {bart:0, roth:0, gas:0, mama:0, life:0, savings:0};
+        for (const half of [1,2]) {
+            const e = getHalf(mk, half);
+            if (!e) continue;
+            const inc = (e.furtherAI||0)+(e.idler||0);
+            const a = applyCustom(computeAllocHalf(inc, (e.idler||0)>0, mk), e);
+            for (const k of Object.keys(alloc)) alloc[k] += a[k];
+        }
+        const gross = total + alloc.bart + alloc.roth;
+        const totalId = (h1?.idler||0)+(h2?.idler||0);
+        const sc = gradeIdler(totalId, true);
+
+        let html = `<div class="shrink-0">`;
+        html += detailHead(`${MO[m]} ${y}`, `<span class="text-acc-b">$${total.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc);
+        const totalF = (h1?.furtherAI||0)+(h2?.furtherAI||0);
+        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">FAI <span class="text-acc">$${totalF.toLocaleString()}</span>${totalId>0?' + IDL <span class="text-acc">$'+totalId.toLocaleString()+'</span>':''}</div>`;
+        html += `</div>`;
+        html += `<div class="flex-1 flex flex-col min-h-0">`;
+        html += renderDonutAndAlloc(alloc, gross, 'Monthly');
+
+        if (!h1 || !h2) {
+            const filled = h1 || h2;
+            const filledIncome = (filled.furtherAI||0)+(filled.idler||0);
+            html += renderPrediction(mk, filledIncome, filled.furtherAI||0, filled.idler||0, gradeIdler(filled.idler||0, false));
+        }
+
+        html += renderWhereToSend(alloc);
+        html += `</div>`;
+        panel.innerHTML = html;
+    }
+
+}
+
+function detailHead(title, amountHtml, grade, mk, half) {
+    const gradeColors = { worst:'text-rd border-rd/30 bg-rd/5', mid:'text-org border-org/30 bg-org/5', best:'text-grn border-grn/30 bg-grn/5' };
+    const gradeLabels = { worst:'Rough', mid:'Decent', best:'Great' };
+    let btns = `<button onclick="closeDetail()" class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-wht border border-bdr px-2 py-0.5 hover:border-wht hover:text-wht transition-colors">X</button>`;
+    let actions = '';
+    if (mk && half !== undefined) {
+        actions = `<button onclick="openModal('${mk}',${half})" class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-acc border border-acc/40 px-2 py-0.5 hover:bg-acc/10 transition-colors">Edit</button>`
+                + `<button onclick="resetEntry('${mk}',${half})" class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-rd/50 border border-bdr px-2 py-0.5 hover:text-rd hover:border-rd/30 transition-colors">Reset</button>`;
+    }
+    let gradeHtml = '';
+    if (grade) gradeHtml = `<span class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase border px-2 py-0.5 ${gradeColors[grade]}">${gradeLabels[grade]}</span>`;
+    return `<div class="mb-3 pb-2.5 border-b border-bdr">
+        <div class="flex justify-between items-start">
+            <div>
+                <div class="flex items-center gap-2"><span class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${title}</span>${gradeHtml}</div>
+                ${amountHtml ? `<div class="font-mono text-base font-bold mt-0.5">${amountHtml}</div>` : ''}
+            </div>
+            <div class="flex gap-1.5">${actions}${btns}</div>
+        </div>
+    </div>`;
+}
+
+function renderDonutAndAlloc(alloc, total, label) {
+    // Filter out $0 categories
+    const visible = Object.entries(alloc).filter(([k,v]) => v > 0 && CATS[k]);
+    const cx=90, cy=90, r=68, circ=2*Math.PI*r;
+    let off=0, circles='';
+    for (const [k,v] of visible) {
+        const d = circ*(total>0?v/total:0), c = CATS[k].color;
+        circles += `<circle cx="${cx}" cy="${cy}" r="${r}" fill="none" stroke="${c}" stroke-width="18" stroke-dasharray="${d} ${circ-d}" stroke-dashoffset="${-off}" transform="rotate(-90 ${cx} ${cy})" style="filter:drop-shadow(0 0 3px ${c}40)"/>`;
+        off += d;
+    }
+    let h = `<div class="flex flex-wrap items-center justify-center sm:justify-start gap-4 mb-3">`;
+    h += `<div class="relative w-[110px] h-[110px] sm:w-[130px] sm:h-[130px] shrink-0">
+        <svg viewBox="0 0 180 180" class="w-full h-full">${circles}</svg>
+        <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
+            <div class="font-mono text-sm font-bold text-wht group cursor-default"><span class="group-hover:hidden">$$$</span><span class="hidden group-hover:inline">${'$'+total.toLocaleString()}</span></div>
+            <div class="font-raj text-[9px] font-semibold tracking-[0.12em] uppercase text-wht">${label}</div>
+        </div>
+    </div>`;
+    h += `<div class="flex-1 w-full">`;
+    for (const [k,v] of visible) {
+        const c = CATS[k], pct = total>0?(v/total*100):0;
+        h += `<div class="grid grid-cols-[8px_auto_1fr_auto] gap-1.5 sm:gap-2 items-center py-2 border-b border-bdr/30 last:border-0">
+            <div class="w-[7px] h-[7px] rounded-full" style="background:${c.color}"></div>
+            <span class="font-raj text-[11px] sm:text-xs font-bold tracking-[0.08em] uppercase" style="color:${c.color}">${c.label}</span>
+            <div class="h-[4px] bg-bg overflow-hidden rounded-full"><div class="h-full rounded-full" style="width:${pct}%;background:${c.color};box-shadow:0 0 4px ${c.color}60"></div></div>
+            <span class="font-mono text-[11px] sm:text-xs text-right" style="color:${c.color}">$${v.toLocaleString()}</span>
+        </div>`;
+    }
+    h += `</div></div>`;
+    return h;
+}
+
+// Get per-biweek Idler stats from all entries
+function getIdlerStats() {
+    const idlerChecks = allEntries.filter(e => (e.idler||0) > 0).map(e => e.idler);
+    if (idlerChecks.length === 0) return null;
+    const sorted = [...idlerChecks].sort((a,b) => a-b);
+    return {
+        count: idlerChecks.length,
+        avg: idlerChecks.reduce((s,v) => s+v, 0) / idlerChecks.length,
+        max: sorted[sorted.length-1],
+        min: sorted[0],
+    };
+}
+
+// FurtherAI is the guaranteed base — get the typical biweek amount
+function getFurtherAIBase() {
+    const checks = allEntries.filter(e => (e.furtherAI||0) > 0).map(e => e.furtherAI);
+    if (checks.length === 0) return 0;
+    // Use the most recent as the base (it's a salary, stays consistent)
+    return checks[checks.length - 1];
+}
+
+function renderPrediction(mk, income, furtherAI, idler, sc) {
+    const now = new Date();
+    const y = parseInt(mk.split('-')[0]), m = parseInt(mk.split('-')[1]) - 1;
+    const daysInMonth = new Date(y, m + 1, 0).getDate();
+    const today = (y === now.getFullYear() && m === now.getMonth()) ? now.getDate() : daysInMonth;
+    const daysLeft = Math.max(0, daysInMonth - today);
+    const isCurrentMonth = (y === now.getFullYear() && m === now.getMonth());
+
+    const idlerStats = getIdlerStats();
+    const aiBase = getFurtherAIBase() || furtherAI;
+    const colors = { worst: 'text-rd', mid: 'text-org', best: 'text-grn' };
+
+    // This biweek is already locked in. Predict the OTHER biweek to get full month.
+    // Other half will have: AI base (guaranteed) + Idler (variable)
+    const otherAI = aiBase;
+
+    let h = `<div class="pt-3 border-t border-bdr/40">`;
+    h += `<div class="font-raj text-[11px] font-bold tracking-[0.12em] uppercase text-wht mb-2">`;
+    h += isCurrentMonth ? `Month Projection — ${daysLeft} days left` : `Month Projection`;
+    h += `</div>`;
+
+    h += `<div class="font-raj text-[9px] text-wht tracking-[0.04em] uppercase mb-2">This half: $${income.toLocaleString()} locked in</div>`;
+
+    if (idlerStats) {
+        const bestOther = otherAI + idlerStats.max;
+        const midOther = otherAI + idlerStats.avg;
+        const worstOther = otherAI; // no idler
+
+        h += `<div class="space-y-1">`;
+        h += predRow('Best', `+$${Math.round(bestOther).toLocaleString()} 2nd half`, income + bestOther, colors.best);
+        h += predRow('Mid', `+$${Math.round(midOther).toLocaleString()} 2nd half`, income + midOther, colors.mid);
+        h += predRow('Worst', `+$${Math.round(worstOther).toLocaleString()} FAI only`, income + worstOther, colors.worst);
+        h += `</div>`;
+    } else {
+        const worstMonth = income + otherAI;
+        h += `<div class="space-y-1">`;
+        h += predRow('Floor', `+$${otherAI.toLocaleString()} FAI only`, worstMonth, colors.worst);
+        h += `</div>`;
+    }
+
+    h += `</div>`;
+    return h;
+}
+
+function predRow(label, desc, amount, colorCls) {
+    return `<div class="flex items-center gap-2 py-1">
+        <span class="font-raj text-[11px] font-bold tracking-[0.08em] uppercase ${colorCls} w-[52px] shrink-0">${label}</span>
+        <span class="font-raj text-[9px] text-wht tracking-[0.04em] uppercase flex-1 truncate">${desc}</span>
+        <span class="font-mono text-xs font-bold ${colorCls} shrink-0">$${Math.round(amount).toLocaleString()}</span>
+    </div>`;
+}
+
+function scenarioBadge(sc, extra) {
+    const colors = { worst:'text-rd border-rd/25', mid:'text-org border-org/25', best:'text-grn border-grn/25' };
+    return `<span class="inline-block font-raj text-[9px] font-bold tracking-[0.1em] uppercase border px-2.5 py-0.5 mt-2 ${colors[sc]}">${sc} case${extra?' — '+extra:''}</span>`;
+}
+
+function renderVerdict(sc, total) {
+    const cfg = {
+        worst: { color:'text-rd', border:'border-rd/30', bg:'bg-rd/5', label:'Rough Month', icon:'&#x2717;' },
+        mid:   { color:'text-org', border:'border-org/30', bg:'bg-org/5', label:'Decent Month', icon:'&#x2014;' },
+        best:  { color:'text-grn', border:'border-grn/30', bg:'bg-grn/5', label:'Great Month', icon:'&#x2713;' },
+    };
+    const c = cfg[sc];
+    return `<div class="pt-3 border-t border-bdr/40">
+        <div class="${c.bg} border ${c.border} px-4 py-3 flex items-center justify-between">
+            <div>
+                <div class="font-raj text-xs font-bold tracking-[0.12em] uppercase ${c.color}">${c.label}</div>
+                <div class="font-raj text-[9px] text-wht tracking-[0.06em] uppercase mt-0.5">${sc} case — $${total.toLocaleString()} net</div>
+            </div>
+            <span class="font-mono text-2xl ${c.color}">${c.icon}</span>
+        </div>
+    </div>`;
+}
+
+function renderWhereToSend(alloc) {
+    const savings = alloc.savings||0;
+    const mama = alloc.mama||0;
+    const checkings = alloc.life||0;
+
+    let h = `<div class="pt-3 border-t border-bdr" id="where-to-send">`;
+
+    // Checkings
+    h += `<div class="flex justify-between items-center py-2.5 border-b border-bdr/30">
+        <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-ylw">Checkings</span>
+        <span class="font-mono text-base font-bold text-ylw">$${checkings.toLocaleString()}</span>
+    </div>`;
+
+    // Savings (adjustable)
+    h += `<div class="flex justify-between items-center py-2.5 border-b border-bdr/30">
+        <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-grn">Savings</span>
+        <div class="flex items-center gap-2">
+            <button onclick="adjustSplit('savings',-100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-grn hover:border-grn active:bg-grn/10 transition-colors font-mono text-base sm:text-sm">-</button>
+            <span class="font-mono text-base font-bold text-grn w-[72px] text-center">$${savings.toLocaleString()}</span>
+            <button onclick="adjustSplit('savings',100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-grn hover:border-grn active:bg-grn/10 transition-colors font-mono text-base sm:text-sm">+</button>
+        </div>
+    </div>`;
+
+    // Mom (adjustable)
+    h += `<div class="flex justify-between items-center py-2.5">
+        <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-pnk">Mom</span>
+        <div class="flex items-center gap-2">
+            <button onclick="adjustSplit('mama',-100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-pnk hover:border-pnk active:bg-pnk/10 transition-colors font-mono text-base sm:text-sm">-</button>
+            <span class="font-mono text-base font-bold text-pnk w-[72px] text-center">$${mama.toLocaleString()}</span>
+            <button onclick="adjustSplit('mama',100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-pnk hover:border-pnk active:bg-pnk/10 transition-colors font-mono text-base sm:text-sm">+</button>
+        </div>
+    </div>`;
+
+
+    h += `</div>`;
+    return h;
+}
+
+async function adjustSplit(field, delta) {
+    if (!detailView) return;
+    const mk = detailView.mk, half = detailView.half || 1;
+    const entry = getHalf(mk, half);
+    if (!entry) return;
+
+    const alloc = computeAllocHalf((entry.furtherAI||0)+(entry.idler||0), (entry.idler||0)>0, mk);
+    const pool = (alloc.mama||0) + (alloc.life||0) + (alloc.savings||0);
+
+    let savings = entry.customSavings !== undefined ? entry.customSavings : alloc.savings;
+    let mama = entry.customMama !== undefined ? entry.customMama : alloc.mama;
+
+    if (field === 'savings') savings = Math.max(0, savings + delta);
+    if (field === 'mama') mama = Math.max(0, mama + delta);
+
+    // Don't let savings + mama exceed pool (need some checkings)
+    if (savings + mama > pool) return;
+
+    entry.customSavings = savings;
+    entry.customMama = mama;
+
+    // Save to server
+    try {
+        await fetch('/api/breakdown', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(entry),
+        });
+    } catch(e) { console.error(e); }
+
+    renderDetail();
+}
+
+// ─── Modal ───
+async function resetEntry(mk, half) {
+    const id = `${mk}-H${half}`;
+    try {
+        const r = await fetch(`/api/breakdown/${id}`, { method: 'DELETE' });
+        if (r.ok) {
+            allEntries = allEntries.filter(e => e.id !== id);
+            closeDetail();
+            render();
+        }
+    } catch(e) { console.error(e); }
+}
+
+function openModal(mk, half) {
+    modalTarget = { mk, half };
+    const m = parseInt(mk.split('-')[1])-1, y = parseInt(mk.split('-')[0]);
+    document.getElementById('modal-title').textContent = `${MO_FULL[m]} ${y}`;
+    const ex = getHalf(mk, half);
+    document.getElementById('inp-further').value = ex ? ex.furtherAI : '';
+    document.getElementById('inp-idler').value = ex ? ex.idler : '';
+    document.getElementById('modal').classList.add('show');
+    setTimeout(() => document.getElementById('inp-further').focus(), 100);
+}
+function closeModal() { document.getElementById('modal').classList.remove('show'); modalTarget = null; }
+
+async function saveEntry() {
+    if (!modalTarget) return;
+    const f = parseFloat(document.getElementById('inp-further').value)||0;
+    const id = parseFloat(document.getElementById('inp-idler').value)||0;
+    if (f===0 && id===0) return;
+    const entry = { id:`${modalTarget.mk}-H${modalTarget.half}`, monthKey:modalTarget.mk, half:modalTarget.half, furtherAI:f, idler:id, timestamp:new Date().toISOString() };
+    try {
+        const r = await fetch('/api/breakdown', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(entry) });
+        if (r.ok) {
+            allEntries = allEntries.filter(e => e.id !== entry.id);
+            allEntries.push(entry);
+            const mk = modalTarget.mk, half = modalTarget.half;
+            closeModal();
+            detailView = { mk, half };
+            render();
+        }
+    } catch(e) { console.error(e); }
+}
+
+document.getElementById('inp-further').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('inp-idler').focus(); });
+document.getElementById('inp-idler').addEventListener('keydown', e => { if (e.key==='Enter') saveEntry(); });
+document.getElementById('modal').addEventListener('click', e => { if (e.target===e.currentTarget) closeModal(); });
+
+// ─── Portfolio ───
+let portfolio = { holdings: [] };
+let stockPrices = {};
+
+async function loadPortfolio() {
+    try { const r = await fetch('/api/portfolio'); if (r.ok) portfolio = await r.json(); } catch(e) {}
+}
+
+async function fetchPrices() {
+    for (const h of portfolio.holdings) {
+        try {
+            const r = await fetch(`/api/stock-quote/${h.ticker}`);
+            if (r.ok) stockPrices[h.ticker] = await r.json();
+        } catch(e) {}
+    }
+}
+
+function openPortfolioModal() {
+    document.getElementById('inp-ticker').value = '';
+    document.getElementById('inp-shares').value = '';
+    document.getElementById('inp-costbasis').value = '';
+    document.getElementById('portfolio-modal').classList.add('show');
+    setTimeout(() => document.getElementById('inp-ticker').focus(), 100);
+}
+function closePortfolioModal() { document.getElementById('portfolio-modal').classList.remove('show'); }
+
+async function saveHolding() {
+    const ticker = document.getElementById('inp-ticker').value.trim().toUpperCase();
+    const shares = parseFloat(document.getElementById('inp-shares').value) || 0;
+    const costBasis = parseFloat(document.getElementById('inp-costbasis').value) || 0;
+    if (!ticker || shares <= 0) return;
+    portfolio.holdings = portfolio.holdings.filter(h => h.ticker !== ticker);
+    portfolio.holdings.push({ ticker, shares, costBasis });
+    try { await fetch('/api/portfolio', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(portfolio) }); } catch(e) {}
+    closePortfolioModal();
+    await fetchPrices();
+    if (!detailView) renderYearSummary();
+}
+
+async function removeHolding(ticker) {
+    portfolio.holdings = portfolio.holdings.filter(h => h.ticker !== ticker);
+    try { await fetch('/api/portfolio', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(portfolio) }); } catch(e) {}
+    if (!detailView) renderYearSummary();
+}
+
+function renderPortfolioSection() {
+    let totalValue = 0, totalCost = 0;
+    let rows = '';
+    for (const h of portfolio.holdings) {
+        const q = stockPrices[h.ticker];
+        const price = q?.c || 0;
+        const value = price * h.shares;
+        const cost = h.costBasis * h.shares;
+        const gain = value - cost;
+        const gainPct = cost > 0 ? (gain / cost * 100) : 0;
+        const isUp = gain >= 0;
+        totalValue += value;
+        totalCost += cost;
+
+        rows += `<div class="flex items-center justify-between py-2 border-b border-bdr/30">
+            <div class="flex-1">
+                <div class="flex items-center gap-2">
+                    <span class="font-mono text-xs font-bold text-acc-b">${h.ticker}</span>
+                    <span class="font-raj text-[8px] text-wht uppercase">${h.shares} sh @ $${h.costBasis.toLocaleString()}</span>
+                    <button onclick="removeHolding('${h.ticker}')" class="font-mono text-[8px] text-rd/40 hover:text-rd transition-colors ml-1">x</button>
+                </div>
+                <div class="font-mono text-[10px] text-wht mt-0.5">$${price.toFixed(2)} now — <span class="text-wht/60">$${cost.toFixed(0)} invested</span></div>
+            </div>
+            <div class="text-right">
+                <div class="font-mono text-xs font-bold text-wht">$${value.toFixed(0).toLocaleString()}</div>
+                <div class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'}">${isUp?'+':''}$${gain.toFixed(0)} (${isUp?'+':''}${gainPct.toFixed(1)}%)</div>
+            </div>
+        </div>`;
+    }
+
+    const totalGain = totalValue - totalCost;
+    const totalPct = totalCost > 0 ? (totalGain / totalCost * 100) : 0;
+    const isUp = totalGain >= 0;
+
+    let h = `<div class="mt-3 pt-2.5 border-t border-bdr">`;
+    h += `<div class="flex items-center justify-between mb-2">
+        <span class="font-raj text-[10px] font-bold tracking-[0.1em] uppercase text-wht">Investments</span>
+        <button onclick="openPortfolioModal()" class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-acc border border-acc/40 px-2 py-0.5 hover:bg-acc/10 transition-colors">+ Add</button>
+    </div>`;
+
+    if (portfolio.holdings.length === 0) {
+        h += `<div class="font-raj text-[10px] text-wht text-center py-3">No holdings — add a stock or ETF</div>`;
+    } else {
+        h += rows;
+        h += `<div class="flex justify-between items-center pt-2">
+            <div>
+                <span class="font-raj text-[10px] font-bold tracking-[0.08em] uppercase text-wht">Total</span>
+                <span class="font-mono text-[9px] text-wht/60 ml-2">$${totalCost.toFixed(0).toLocaleString()} in</span>
+            </div>
+            <div class="text-right">
+                <span class="font-mono text-xs font-bold text-wht">$${totalValue.toFixed(0).toLocaleString()}</span>
+                <span class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'} ml-2">${isUp?'+':''}$${totalGain.toFixed(0)} (${isUp?'+':''}${totalPct.toFixed(1)}%)</span>
+            </div>
+        </div>`;
+    }
+    h += `</div>`;
+    return h;
+}
+
+document.getElementById('portfolio-modal').addEventListener('click', e => { if (e.target===e.currentTarget) closePortfolioModal(); });
+document.getElementById('inp-ticker').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('inp-shares').focus(); });
+document.getElementById('inp-shares').addEventListener('keydown', e => { if (e.key==='Enter') document.getElementById('inp-costbasis').focus(); });
+document.getElementById('inp-costbasis').addEventListener('keydown', e => { if (e.key==='Enter') saveHolding(); });
+
+// ─── Clock ───
+function tick() { document.getElementById('clock').textContent = new Date().toLocaleTimeString(); }
+tick(); setInterval(tick, 1000);
+
+// ─── Init ───
+(async () => {
+    try { const r = await fetch('/api/breakdown'); if (r.ok) { allEntries = (await r.json()).entries || []; } } catch(e) {}
+    await loadPortfolio();
+    render();
+    fetchPrices().then(() => { if (!detailView) renderYearSummary(); });
+})();
+</script>
+</body>
+</html>

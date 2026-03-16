@@ -3,3 +3,14 @@ requests
 python-dotenv
 psutil
 anthropic
+
+# AI indexing (optional — only needed on NAS for photo AI features)
+# torch
+# open-clip-torch
+# numpy
+# pillow
+# pillow-heif
+#
+# Face detection (optional):
+# face_recognition
+# scikit-learn

@@ -4,7 +4,7 @@ import json
 import os
 
 from anthropic import Anthropic
-from llm_interface import _handle_tool_call, SYSTEM_PROMPT
+from ai.llm_interface import _handle_tool_call, SYSTEM_PROMPT
 
 CLAUDE_MODEL = os.getenv("CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
@@ -58,6 +58,20 @@ CLAUDE_TOOLS = [
                 }
             },
             "required": ["trash_name"]
+        }
+    },
+    {
+        "name": "search_chatgpt_history",
+        "description": "Search Zain's past ChatGPT conversations (3,600+ convos indexed). Use this whenever the user asks about something they previously discussed, asked, or were told in past chats — salary info, project details, advice they got, code they wrote, anything from their history. Also use when they say things like 'what did I ask about', 'remember when I', 'did I ever', etc. You can call this tool multiple times with different queries to find more info — e.g. search 'salary' then 'job offer' then 'paycheck' if the first search doesn't have everything.",
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search terms to find relevant conversations (e.g., 'salary negotiation', 'NASA internship', 'python flask code')"
+                }
+            },
+            "required": ["query"]
         }
     },
     {

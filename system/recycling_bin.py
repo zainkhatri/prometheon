@@ -8,9 +8,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 _SCRIPT_DIR = Path(__file__).resolve().parent
+_PROJECT_ROOT = _SCRIPT_DIR.parent
 # On NAS: /srv/mergerfs/PROMETHEUS/PROMETHEON → trash lives at /srv/mergerfs/PROMETHEUS/.prometheon-trash
 # On Mac: /Volumes/PROMETHEUS/PROMETHEON → trash lives at /Volumes/PROMETHEUS/.prometheon-trash
-TRASH_DIR = _SCRIPT_DIR.parent / ".prometheon-trash"
+TRASH_DIR = _PROJECT_ROOT.parent / ".prometheon-trash"
 TRASH_DIR.mkdir(parents=True, exist_ok=True)
 
 

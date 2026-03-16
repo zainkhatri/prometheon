@@ -5,7 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, interactive-widget=resizes-content, viewport-fit=cover">
     <title>PROMETHEON</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
-    <link rel="apple-touch-icon" href="/static/favicon.svg">
+    <link rel="manifest" href="/static/manifest.json">
+    <link rel="apple-touch-icon" href="/static/icon-180.png">
+    
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#04070d">
@@ -735,15 +737,14 @@ function escapeHtml(str) {
 }
 
 function formatOutput(text) {
-    let clean = text.replace(/<[^>]+>/g, '');
-    let h = escapeHtml(clean);
+    let h = escapeHtml(text);
     h = h.replace(/\*\*(.+?)\*\*/g, '<strong class="text-term-bright">$1</strong>');
     h = h.replace(/\*(.+?)\*/g, '<em>$1</em>');
     h = h.replace(/`([^`]+)`/g, '<code>$1</code>');
     h = h.replace(/^#{1,3}\s+(.+)$/gm, '<strong class="text-accent-bright">$1</strong>');
     h = h.replace(/^(\s*)[-*]\s+/gm, '$1  · ');
     h = h.replace(/^(\s*)\d+\.\s+/gm, '$1  ');
-    h = h.replace(/(\/[\w.\-\/]+)/g, '<span class="text-accent-bright">$1</span>');
+    h = h.replace(/(?<!<)(\/[\w.\-\/]+)/g, '<span class="text-accent-bright">$1</span>');
     return h;
 }
 

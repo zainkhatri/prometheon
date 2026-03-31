@@ -315,8 +315,9 @@ function renderYearSummary() {
     }, 0);
     const portfolioValue = portfolio.holdings.reduce((s,h) => s + (stockPrices[h.ticker]?.c||0) * h.shares, 0);
 
-    let h = `<div class="mb-3 pb-2 border-b border-bdr">
+    let h = `<div class="mb-3 pb-2 border-b border-bdr flex items-center justify-between">
         <div class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${yr} Overview</div>
+        <button onclick="toggleMoney()" class="font-mono text-[10px] text-wht/40 hover:text-wht transition-colors px-1.5 py-0.5 border border-bdr/50 hover:border-wht/20">${moneyHidden ? '👁' : '👁‍🗨'}</button>
     </div>`;
 
     if (monthData.length === 0) {
@@ -330,19 +331,19 @@ function renderYearSummary() {
     h += `<div class="grid grid-cols-2 gap-2 mb-3">`;
     h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
         <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Earned YTD</div>
-        <div class="font-mono text-base font-bold text-wht">$${Math.round(yearTotal).toLocaleString()}</div>
+        <div class="font-mono text-base font-bold text-wht">${mv(yearTotal)}</div>
     </div>`;
     h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
         <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Avg / Month</div>
-        <div class="font-mono text-base font-bold text-wht">$${Math.round(avgMonthly).toLocaleString()}</div>
+        <div class="font-mono text-base font-bold text-wht">${mv(avgMonthly)}</div>
     </div>`;
     h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
         <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Saved YTD</div>
-        <div class="font-mono text-base font-bold text-grn">$${Math.round(yearSavings).toLocaleString()}</div>
+        <div class="font-mono text-base font-bold text-grn">${mv(yearSavings)}</div>
     </div>`;
     h += `<div class="bg-bg/50 border border-bdr/50 px-3 py-2">
         <div class="font-raj text-[8px] font-bold tracking-[0.12em] uppercase text-wht mb-0.5">Portfolio</div>
-        <div class="font-mono text-base font-bold text-acc-b">$${Math.round(portfolioValue).toLocaleString()}</div>
+        <div class="font-mono text-base font-bold text-acc-b">${mv(portfolioValue)}</div>
     </div>`;
     h += `</div>`;
 
@@ -383,9 +384,9 @@ function renderYearSummary() {
         h += `<div class="mb-3 pb-2.5 border-b border-bdr/50">`;
         h += `<div class="font-raj text-[9px] font-bold tracking-[0.1em] uppercase text-wht mb-1.5">IDL per Biweek</div>`;
         h += `<div class="grid grid-cols-3 gap-2 text-center">`;
-        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">High</div><div class="font-mono text-xs font-bold text-grn">$${Math.round(idlerStats.max).toLocaleString()}</div></div>`;
-        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Avg</div><div class="font-mono text-xs font-bold text-org">$${Math.round(idlerStats.avg).toLocaleString()}</div></div>`;
-        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Low</div><div class="font-mono text-xs font-bold text-rd">$${Math.round(idlerStats.min).toLocaleString()}</div></div>`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">High</div><div class="font-mono text-xs font-bold text-grn">${mv(idlerStats.max)}</div></div>`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Avg</div><div class="font-mono text-xs font-bold text-org">${mv(idlerStats.avg)}</div></div>`;
+        h += `<div><div class="font-raj text-[8px] text-wht uppercase tracking-[0.08em]">Low</div><div class="font-mono text-xs font-bold text-rd">${mv(idlerStats.min)}</div></div>`;
         h += `</div></div>`;
     }
 
@@ -398,8 +399,8 @@ function renderYearSummary() {
                 <span class="font-raj text-[9px] font-bold tracking-[0.08em] uppercase ${gradeColors[md.grade]}">${gradeLabels[md.grade]}</span>
             </div>
             <div class="flex items-center gap-3">
-                ${md.id > 0 ? `<span class="font-mono text-[10px] text-prp">IDL $${Math.round(md.id).toLocaleString()}</span>` : ''}
-                <span class="font-mono text-xs font-bold text-wht">$${Math.round(md.total).toLocaleString()}</span>
+                ${md.id > 0 ? `<span class="font-mono text-[10px] text-prp">IDL ${mv(md.id)}</span>` : ''}
+                <span class="font-mono text-xs font-bold text-wht">${mv(md.total)}</span>
             </div>
         </div>`;
     }
@@ -783,6 +784,15 @@ document.getElementById('modal').addEventListener('click', e => { if (e.target==
 // ─── Portfolio ───
 let portfolio = { holdings: [] };
 let stockPrices = {};
+let moneyHidden = true;
+
+function mv(val) {
+    return moneyHidden ? '$$$' : '$' + Math.round(val).toLocaleString();
+}
+function toggleMoney() {
+    moneyHidden = !moneyHidden;
+    if (!detailView) renderYearSummary();
+}
 
 async function loadPortfolio() {
     try { const r = await fetch('/api/portfolio'); if (r.ok) portfolio = await r.json(); } catch(e) {}
@@ -846,11 +856,11 @@ function renderPortfolioSection() {
                     <span class="font-raj text-[8px] text-wht uppercase">${h.shares} sh @ $${h.costBasis.toLocaleString()}</span>
                     <button onclick="removeHolding('${h.ticker}')" class="font-mono text-[8px] text-rd/40 hover:text-rd transition-colors ml-1">x</button>
                 </div>
-                <div class="font-mono text-[10px] text-wht mt-0.5">$${price.toFixed(2)} now — <span class="text-wht/60">$${cost.toFixed(0)} invested</span></div>
+                <div class="font-mono text-[10px] text-wht mt-0.5">${moneyHidden ? '$$$' : '$'+price.toFixed(2)} now — <span class="text-wht/60">${moneyHidden ? '$$$' : '$'+cost.toFixed(0)} invested</span></div>
             </div>
             <div class="text-right">
-                <div class="font-mono text-xs font-bold text-wht">$${value.toFixed(0).toLocaleString()}</div>
-                <div class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'}">${isUp?'+':''}$${gain.toFixed(0)} (${isUp?'+':''}${gainPct.toFixed(1)}%)</div>
+                <div class="font-mono text-xs font-bold text-wht">${moneyHidden ? '$$$' : '$'+value.toFixed(0)}</div>
+                <div class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'}">${moneyHidden ? '···' : (isUp?'+':'')+'$'+gain.toFixed(0)+' ('+(isUp?'+':'')+gainPct.toFixed(1)+'%)'}</div>
             </div>
         </div>`;
     }
@@ -872,11 +882,11 @@ function renderPortfolioSection() {
         h += `<div class="flex justify-between items-center pt-2">
             <div>
                 <span class="font-raj text-[10px] font-bold tracking-[0.08em] uppercase text-wht">Total</span>
-                <span class="font-mono text-[9px] text-wht/60 ml-2">$${totalCost.toFixed(0).toLocaleString()} in</span>
+                <span class="font-mono text-[9px] text-wht/60 ml-2">${moneyHidden ? '$$$' : '$'+totalCost.toFixed(0)} in</span>
             </div>
             <div class="text-right">
-                <span class="font-mono text-xs font-bold text-wht">$${totalValue.toFixed(0).toLocaleString()}</span>
-                <span class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'} ml-2">${isUp?'+':''}$${totalGain.toFixed(0)} (${isUp?'+':''}${totalPct.toFixed(1)}%)</span>
+                <span class="font-mono text-xs font-bold text-wht">${moneyHidden ? '$$$' : '$'+totalValue.toFixed(0)}</span>
+                <span class="font-mono text-[10px] font-bold ${isUp ? 'text-grn' : 'text-rd'} ml-2">${moneyHidden ? '···' : (isUp?'+':'')+'$'+totalGain.toFixed(0)+' ('+(isUp?'+':'')+totalPct.toFixed(1)+'%)'}</span>
             </div>
         </div>`;
     }
@@ -901,5 +911,6 @@ tick(); setInterval(tick, 1000);
     fetchPrices().then(() => { if (!detailView) renderYearSummary(); });
 })();
 </script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>

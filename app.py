@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import secrets
 import functools
 import subprocess
@@ -454,22 +455,29 @@ def stock_quote(symbol):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
-    # Stocks — Yahoo Finance (no key needed)
-    try:
-        r = req.get(
-            f"https://query1.finance.yahoo.com/v8/finance/chart/{sym}",
-            params={"range": "1d", "interval": "1d"},
-            headers={"User-Agent": "Mozilla/5.0"},
-            timeout=5,
-        )
-        meta = r.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
-        price = meta.get("regularMarketPrice", 0)
-        prev = meta.get("chartPreviousClose", 0)
-        change = round(price - prev, 2)
-        change_pct = round((change / prev * 100) if prev else 0, 2)
-        return jsonify({"c": price, "d": change, "dp": change_pct})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    # Stocks — Google Finance (scrape, no API key needed)
+    _UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
+    _EXCHANGES = ["NASDAQ", "NYSE", "NYSEARCA"]
+    for exch in _EXCHANGES:
+        try:
+            r = req.get(
+                f"https://www.google.com/finance/quote/{sym}:{exch}",
+                headers={"User-Agent": _UA},
+                timeout=5,
+            )
+            assert r.status_code == 200
+            html = r.text
+            m = re.search(r'data-last-price="([0-9.]+)"', html)
+            assert m is not None
+            price = float(m.group(1))
+            prices = re.findall(r'\$([0-9,]+\.[0-9]+)', html[html.find("Previous close"):html.find("Previous close") + 500]) if "Previous close" in html else []
+            prev = float(prices[0].replace(",", "")) if len(prices) > 0 else 0
+            change = round(price - prev, 2) if prev else 0
+            change_pct = round((change / prev * 100), 2) if prev else 0
+            return jsonify({"c": price, "d": change, "dp": change_pct})
+        except Exception:
+            continue
+    return jsonify({"error": f"No quote found for {sym}"}), 404
 
 
 # ── Journals ──
@@ -509,7 +517,7 @@ def _sync_goodnotes_meta():
             FROM documents d
             LEFT JOIN pages p ON p.document_id = d.id AND p.deleted = 0
             WHERE d.deleted = 0 AND d.document_type = 0
-            GROUP BY d.id HAVING page_count > 1
+            GROUP BY d.id HAVING page_count > 0
             ORDER BY d.updated_at DESC
         """).fetchall()
         folder_items = {
@@ -518,6 +526,16 @@ def _sync_goodnotes_meta():
                 "SELECT item_id, root_folder_id FROM folder_to_folder_items WHERE deleted = 0 AND item_type = 1"
             ).fetchall()
         }
+        # Fetch per-page created_at dates for each document (ordered by position = PDF order)
+        _page_dates_by_doc = {}
+        for row in rows:
+            page_rows = conn.execute(
+                "SELECT created_at FROM pages WHERE document_id = ? AND deleted = 0 ORDER BY position",
+                (row["id"],)
+            ).fetchall()
+            _page_dates_by_doc[row["id"]] = [
+                r[0] / 1000 if r[0] and r[0] > 0 else None for r in page_rows
+            ]
         conn.close()
     except Exception:
         return
@@ -547,6 +565,7 @@ def _sync_goodnotes_meta():
         notebooks.append({
             "id": row["id"], "name": name, "pages": row["page_count"],
             "updated": updated, "has_pdf": name.lower() in pdfs,
+            "page_dates": _page_dates_by_doc.get(row["id"], []),
         })
 
     # Try to sync Auto-Backup PDFs from iCloud Drive (via Finder for TCC bypass)
@@ -566,7 +585,6 @@ def _sync_goodnotes_meta():
     with open(meta_path, "w") as f:
         json.dump({
             "synced_at": datetime.now().strftime("%Y-%m-%dT%H:%M:%S"),
-            "icloud_id": "_3bd21be7957b7a056dd7ca10a999e07e",
             "notebooks": notebooks,
         }, f, indent=2)
 
@@ -631,58 +649,86 @@ def _sync_autobackup_pdfs():
                     end tell
                     '''
                     subprocess.run(["osascript", "-e", copy_script], capture_output=True, timeout=120)
-            return
+            # Don't return — check all folders for PDFs from different backup configs
         except Exception:
             continue
 
 
 def _start_goodnotes_sync():
-    """Sync Goodnotes metadata once at startup, then only on manual trigger."""
+    """Sync Goodnotes metadata at startup and every 10 minutes."""
     if sys.platform != "darwin":
         return
-    def _initial():
+    def _loop():
         time.sleep(5)  # wait for app to finish loading
-        try:
-            _sync_goodnotes_meta()
-        except Exception:
-            pass
-    threading.Thread(target=_initial, daemon=True).start()
+        while True:
+            try:
+                _sync_goodnotes_meta()
+            except Exception:
+                pass
+            time.sleep(600)  # re-sync every 10 minutes
+    threading.Thread(target=_loop, daemon=True).start()
 
 
 _start_goodnotes_sync()
 
 
 def _prerender_journal_pages():
-    """Background: pre-render all journal pages to disk cache so they load instantly."""
+    """Background: pre-render journal thumbnails with adaptive scale to avoid OOM."""
     import fitz
-    time.sleep(10)  # let app finish starting
-    os.makedirs(_JOURNAL_CACHE_DIR, exist_ok=True)
-    for fname in os.listdir(JOURNALS_DIR):
+    import gc
+    MAX_PIXMAP_BYTES = 200 * 1024 * 1024  # cap pixmap at 200MB
+    time.sleep(60)  # wait for all startup tasks to settle
+
+    for fname in sorted(os.listdir(JOURNALS_DIR)):
         if not fname.lower().endswith(".pdf") or fname.startswith("."):
             continue
         path = os.path.join(JOURNALS_DIR, fname)
+        pdf_mtime = int(os.path.getmtime(path))
+
+        # First pass: find which pages need rendering (no PDF open)
         try:
             doc = fitz.open(path)
+            total = doc.page_count
+            doc.close()
+            del doc
+            gc.collect()
         except Exception:
             continue
-        pdf_mtime = int(os.path.getmtime(path))
-        total = doc.page_count
+
+        needed = []
         for pg_num in range(total):
-            for tag, scale, quality in [("hq", 1.5, 80), ("full", 2.0, 85)]:
-                cache_key = f"{fname}_{pg_num}_{tag}_{pdf_mtime}.jpg"
-                cache_path = os.path.join(_JOURNAL_CACHE_DIR, cache_key)
-                if os.path.isfile(cache_path):
-                    continue
-                try:
-                    pg = doc[pg_num]
-                    pix = pg.get_pixmap(matrix=fitz.Matrix(scale, scale))
-                    pix.save(cache_path, output="jpeg", jpg_quality=quality)
-                except Exception:
-                    pass
-            if pg_num % 50 == 0 and pg_num > 0:
-                print(f"[journals] Pre-rendered {pg_num}/{total} pages of {fname}")
+            cache_key = f"{fname}_{pg_num}_hq4_{pdf_mtime}.jpg"
+            cache_path = os.path.join(_JOURNAL_CACHE_DIR, cache_key)
+            if not os.path.isfile(cache_path):
+                needed.append((pg_num, cache_path))
+
+        if not needed:
+            print(f"[journals] {fname}: all {total} pages cached")
+            continue
+
+        print(f"[journals] {fname}: {len(needed)} of {total} pages need rendering")
+
+        # Render one page at a time
+        doc = fitz.open(path)
+        rendered = 0
+        for pg_num, cache_path in needed:
+            try:
+                pg = doc[pg_num]
+                r = pg.rect
+                base_bytes = r.width * r.height * 3
+                scale = min(2.5, (MAX_PIXMAP_BYTES / base_bytes) ** 0.5) if base_bytes > 0 else 2.5
+                pix = pg.get_pixmap(matrix=fitz.Matrix(scale, scale))
+                pix.save(cache_path, output="jpeg", jpg_quality=90)
+                pix = None
+                rendered += 1
+            except Exception:
+                pass
+            if rendered % 10 == 0:
+                gc.collect()
+                time.sleep(0.5)
         doc.close()
-        print(f"[journals] Pre-rendered all {total} pages of {fname}")
+        gc.collect()
+        print(f"[journals] {fname}: rendered {rendered}/{len(needed)} pages")
 
 
 threading.Thread(target=_prerender_journal_pages, daemon=True).start()
@@ -704,10 +750,28 @@ def sync_journals():
             exported = _auto_export_stale()
             if exported:
                 _sync_goodnotes_meta()  # refresh metadata after export
+            # Auto-OCR new pages in background after sync
+            _trigger_background_ocr()
             return jsonify({"ok": True, "exported": exported})
         return jsonify({"ok": True})
     except Exception as e:
         return jsonify({"ok": False, "error": str(e)}), 500
+
+
+def _trigger_background_ocr():
+    """Run OCR on any un-indexed journal pages in a background thread."""
+    def _run():
+        try:
+            ocr_script = os.path.join(_APP_DIR, "scripts", "journal_ocr.py")
+            if os.path.exists(ocr_script):
+                subprocess.Popen(
+                    [sys.executable, ocr_script],
+                    stdout=open("/tmp/journal_ocr_auto.log", "a"),
+                    stderr=subprocess.STDOUT,
+                )
+        except Exception as e:
+            print(f"[OCR] Background trigger failed: {e}")
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _auto_export_stale():
@@ -723,29 +787,30 @@ def _auto_export_stale():
         meta = json.load(f)
 
     exported = []
+    import datetime as _dt
     for nb in meta.get("notebooks", []):
-        if not nb.get("has_pdf"):
-            continue  # only re-export notebooks that already have a PDF
         name = nb["name"]
         pdf_path = os.path.join(JOURNALS_DIR, name + ".pdf")
+        has_pdf = False
         if not os.path.isfile(pdf_path):
             # try alternate name
             for f in os.listdir(JOURNALS_DIR):
                 if f.lower().replace("-pdf", "").replace(".pdf", "") == name.lower() and f.endswith(".pdf"):
                     pdf_path = os.path.join(JOURNALS_DIR, f)
+                    has_pdf = True
                     break
-        if not os.path.isfile(pdf_path):
-            continue
+        else:
+            has_pdf = True
 
-        # Compare: Goodnotes updated_at vs PDF mtime
-        gn_ts = nb.get("updated")  # "YYYY-MM-DD"
-        if not gn_ts:
-            continue
-        import datetime as _dt
-        gn_date = _dt.datetime.strptime(gn_ts, "%Y-%m-%d")
-        pdf_date = _dt.datetime.fromtimestamp(os.path.getmtime(pdf_path))
-        if gn_date.date() <= pdf_date.date():
-            continue  # PDF is up to date
+        if has_pdf:
+            # Compare: Goodnotes updated_at vs PDF mtime
+            gn_ts = nb.get("updated")  # "YYYY-MM-DD"
+            if not gn_ts:
+                continue
+            gn_date = _dt.datetime.strptime(gn_ts, "%Y-%m-%d")
+            pdf_date = _dt.datetime.fromtimestamp(os.path.getmtime(pdf_path))
+            if gn_date.date() <= pdf_date.date():
+                continue  # PDF is up to date
 
         # Need re-export — use UI automation
         try:
@@ -925,41 +990,219 @@ def list_journals():
     return jsonify({"journals": journals, "synced_at": gn_synced_at})
 
 
+@app.route("/api/journals/<name>/page-dates")
+@require_auth
+def journal_page_dates(name):
+    """Return created_at dates for each page, from metadata JSON (synced from Goodnotes DB)."""
+    display_name = name.replace(".pdf", "").replace("-pdf", "")
+    meta_path = os.path.join(JOURNALS_DIR, "goodnotes_meta.json")
+    if os.path.isfile(meta_path):
+        with open(meta_path) as f:
+            meta = json.load(f)
+        for nb in meta.get("notebooks", []):
+            if nb["name"].lower() == display_name.lower():
+                return jsonify({"dates": nb.get("page_dates", [])})
+    return jsonify({"dates": []})
+
+
+@app.route("/api/journals/search")
+@require_auth
+def search_journals():
+    """Full-text search across OCR'd journal pages."""
+    q = request.args.get("q", "").strip().lower()
+    if not q:
+        return jsonify({"results": []})
+
+    index_path = os.path.join(JOURNALS_DIR, "journal_text_index.json")
+    if not os.path.isfile(index_path):
+        return jsonify({"results": [], "error": "OCR index not built yet. Run: python scripts/journal_ocr.py"})
+
+    with open(index_path) as f:
+        index = json.load(f)
+
+    results = []
+    terms = q.split()
+    for key, entry in index.get("pages", {}).items():
+        text = (entry.get("text") or "").lower()
+        if all(t in text for t in terms):
+            # Find a snippet around the first match
+            pos = text.find(terms[0])
+            start = max(0, pos - 60)
+            end = min(len(text), pos + 120)
+            snippet = entry["text"][start:end].replace("\n", " ").strip()
+            if start > 0:
+                snippet = "..." + snippet
+            if end < len(text):
+                snippet = snippet + "..."
+            results.append({
+                "pdf": entry["pdf"],
+                "page": entry["page"],
+                "snippet": snippet,
+            })
+    # Sort by pdf name then page number
+    results.sort(key=lambda r: (r["pdf"], r["page"]))
+    return jsonify({"results": results[:100], "total": len(results), "query": q})
+
+
+@app.route("/api/journals/ocr/page-text")
+@require_auth
+def journal_ocr_page_text():
+    """Return OCR text for a specific journal page."""
+    pdf = request.args.get("pdf", "")
+    page = request.args.get("page", "")
+    if not pdf or page == "":
+        return jsonify({"text": ""})
+    index_path = os.path.join(JOURNALS_DIR, "journal_text_index.json")
+    if not os.path.isfile(index_path):
+        return jsonify({"text": ""})
+    with open(index_path) as f:
+        index = json.load(f)
+    key = f"{pdf}:{page}"
+    entry = index.get("pages", {}).get(key, {})
+    return jsonify({"text": entry.get("text", "")})
+
+
+_easyocr_reader = None
+_easyocr_lock = threading.Lock()
+
+
+def _get_easyocr():
+    global _easyocr_reader
+    if _easyocr_reader is None:
+        with _easyocr_lock:
+            if _easyocr_reader is None:
+                import easyocr
+                _easyocr_reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+    return _easyocr_reader
+
+
+@app.route("/api/journals/ocr/word-boxes")
+@require_auth
+def journal_word_boxes():
+    """Return word-level bounding boxes for a journal page using EasyOCR.
+    Boxes are normalized 0-1 with origin at top-left.
+    """
+    pdf_name = request.args.get("pdf", "")
+    page_num = request.args.get("page", "")
+    if not pdf_name or page_num == "":
+        return jsonify({"words": []})
+
+    try:
+        import fitz as _fitz
+
+        pdf_path = os.path.join(JOURNALS_DIR, pdf_name)
+        if not os.path.isfile(pdf_path):
+            return jsonify({"words": []})
+
+        page_num = int(page_num)
+        doc = _fitz.open(pdf_path)
+        if page_num >= doc.page_count:
+            doc.close()
+            return jsonify({"words": []})
+
+        page = doc[page_num]
+        pix = page.get_pixmap(matrix=_fitz.Matrix(1.5, 1.5))
+        img_w, img_h = pix.width, pix.height
+        img_bytes = pix.tobytes("png")
+        doc.close()
+
+        reader = _get_easyocr()
+        results = reader.readtext(img_bytes)
+
+        words = []
+        for bbox, text, conf in results:
+            # bbox = [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+            x1, y1 = bbox[0]
+            x2, y2 = bbox[2]
+            words.append({
+                "text": text,
+                "x": round(x1 / img_w, 4),
+                "y": round(y1 / img_h, 4),
+                "w": round((x2 - x1) / img_w, 4),
+                "h": round((y2 - y1) / img_h, 4),
+            })
+
+        return jsonify({"words": words})
+    except Exception as e:
+        return jsonify({"words": [], "error": str(e)})
+
+
+@app.route("/api/journals/ocr/status")
+@require_auth
+def journal_ocr_status():
+    """Check OCR index status."""
+    index_path = os.path.join(JOURNALS_DIR, "journal_text_index.json")
+    if not os.path.isfile(index_path):
+        return jsonify({"indexed": 0, "has_index": False})
+    with open(index_path) as f:
+        index = json.load(f)
+    return jsonify({"indexed": len(index.get("pages", {})), "has_index": True})
+
+
 _JOURNAL_CACHE_DIR = os.path.join(JOURNALS_DIR, ".cache")
+
+# Cache persists across restarts — tag versioning (hq3/full3) handles staleness
+os.makedirs(_JOURNAL_CACHE_DIR, exist_ok=True)
+
+_open_pdfs = {}  # keep PDFs open in memory to avoid re-opening 3GB files
+_open_pdfs_lock = threading.Lock()
+
+def _get_pdf(path):
+    """Keep PDF docs open in memory for fast page access."""
+    import fitz
+    mtime = os.path.getmtime(path)
+    with _open_pdfs_lock:
+        cached = _open_pdfs.get(path)
+        if cached and cached[1] == mtime:
+            return cached[0]
+        # Close old doc if mtime changed
+        if cached:
+            try: cached[0].close()
+            except: pass
+        doc = fitz.open(path)
+        _open_pdfs[path] = (doc, mtime)
+        return doc
 
 @app.route("/api/journals/<name>/page/<int:page>")
 @require_auth
 def journal_page_image(name, page):
-    import fitz
     path = os.path.join(JOURNALS_DIR, name)
     if not os.path.isfile(path):
         abort(404)
 
     thumb = request.args.get("thumb")
     if thumb == "hq":
-        scale, quality, tag = 1.5, 80, "hq"
+        scale, quality, tag = 2.5, 90, "hq4"
     elif thumb:
-        scale, quality, tag = 1.0, 70, "lo"
+        scale, quality, tag = 1.5, 80, "lo4"
     else:
-        scale, quality, tag = 2.0, 85, "full"
+        scale, quality, tag = 5.0, 95, "full4"
 
-    # Disk cache: avoids re-rendering from the huge PDF
+    # Disk cache
     os.makedirs(_JOURNAL_CACHE_DIR, exist_ok=True)
     pdf_mtime = int(os.path.getmtime(path))
     cache_key = f"{name}_{page}_{tag}_{pdf_mtime}.jpg"
     cache_path = os.path.join(_JOURNAL_CACHE_DIR, cache_key)
     if os.path.isfile(cache_path):
-        return send_file(cache_path, mimetype="image/jpeg")
+        return send_file(cache_path, mimetype="image/jpeg",
+                         max_age=604800, conditional=True)
 
-    doc = fitz.open(path)
+    import fitz
+    doc = _get_pdf(path)
     if page < 0 or page >= doc.page_count:
-        doc.close()
         abort(404)
     pg = doc[page]
-    mat = fitz.Matrix(scale, scale)
+    # Cap scale for huge pages to avoid OOM
+    r = pg.rect
+    base_bytes = r.width * r.height * 3
+    MAX_PIX = 200 * 1024 * 1024
+    if base_bytes > 0:
+        capped = min(scale, (MAX_PIX / base_bytes) ** 0.5)
+    else:
+        capped = scale
+    mat = fitz.Matrix(capped, capped)
     pix = pg.get_pixmap(matrix=mat)
     img_data = pix.tobytes("jpeg", quality)
-    doc.close()
 
     # Save to cache
     try:
@@ -1002,6 +1245,129 @@ def mordor_toggle():
         except subprocess.TimeoutExpired:
             return jsonify({"ok": True, "status": action + "ing", "output": "timed out waiting"})
     return jsonify({"ok": False, "error": "invalid action"}), 400
+
+
+# ─── Public Minecraft Control (for GitHub Pages remote) ───
+
+@app.route("/api/minecraft", methods=["POST", "OPTIONS"])
+def minecraft_public():
+    """Public Minecraft server control — open access, CORS-restricted."""
+    origin = request.headers.get("Origin", "")
+    allowed_origins = [
+        "https://mordor.vercel.app",
+        "https://zainkhatri.github.io",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
+    is_allowed = any(origin.startswith(o) for o in allowed_origins) or origin.endswith(".vercel.app")
+    cors_origin = origin if is_allowed else allowed_origins[0]
+    cors_headers = {
+        "Access-Control-Allow-Origin": cors_origin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    }
+
+    if request.method == "OPTIONS":
+        return ("", 204, cors_headers)
+
+    data = request.get_json(silent=True) or {}
+    action = str(data.get("action", "")).strip().lower()
+
+    if action not in ("start", "stop", "status"):
+        return (jsonify({"error": "Invalid action"}), 400, cors_headers)
+
+    from ai.safe_executor import minecraft_server
+    mc_action = {"start": "on", "stop": "off", "status": "status"}[action]
+    result = minecraft_server(mc_action)
+    msg = result["stdout"] or result["stderr"]
+
+    # Parse running state
+    running = None
+    if "already running" in msg.lower() or "is running" in msg.lower() or "rising" in msg.lower():
+        running = True
+    elif "stopped" in msg.lower() or "offline" in msg.lower() or "not running" in msg.lower() or "fallen" in msg.lower():
+        running = False
+
+    return (jsonify({
+        "ok": True,
+        "message": msg,
+        "running": running,
+        "address": "safety-melbourne.gl.joinmc.link",
+    }), 200, cors_headers)
+
+
+@app.route("/api/minecraft/players", methods=["POST", "OPTIONS"])
+def minecraft_players():
+    """Check online player count via mcstatus query."""
+    origin = request.headers.get("Origin", "")
+    allowed_origins = [
+        "https://mordor.vercel.app",
+        "https://zainkhatri.github.io",
+        "http://localhost",
+        "http://127.0.0.1",
+    ]
+    is_allowed = any(origin.startswith(o) for o in allowed_origins) or origin.endswith(".vercel.app")
+    cors_origin = origin if is_allowed else allowed_origins[0]
+    cors_headers = {
+        "Access-Control-Allow-Origin": cors_origin,
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type",
+    }
+    if request.method == "OPTIONS":
+        return ("", 204, cors_headers)
+
+    try:
+        import socket
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(5)
+        sock.connect(("127.0.0.1", 25565))
+        # MC server list ping (modern protocol)
+        import struct
+        # Handshake packet
+        host = b"127.0.0.1"
+        port = 25565
+        handshake = b"\x00"  # packet id
+        handshake += b"\x05"  # protocol version (5 = 1.7.x)
+        handshake += bytes([len(host)]) + host
+        handshake += struct.pack(">H", port)
+        handshake += b"\x01"  # next state = status
+        packet = bytes([len(handshake)]) + handshake
+        sock.sendall(packet)
+        # Status request
+        sock.sendall(b"\x01\x00")
+        # Read response
+        raw = sock.recv(4096)
+        sock.close()
+        # Parse: varint length, packet id 0x00, varint string length, JSON string
+        idx = 0
+        # skip packet length varint
+        while idx < len(raw) and raw[idx] & 0x80:
+            idx += 1
+        idx += 1
+        # skip packet id varint
+        while idx < len(raw) and raw[idx] & 0x80:
+            idx += 1
+        idx += 1
+        # read string length varint
+        str_len = 0
+        shift = 0
+        while idx < len(raw):
+            b = raw[idx]
+            str_len |= (b & 0x7F) << shift
+            idx += 1
+            shift += 7
+            if not (b & 0x80):
+                break
+        json_str = raw[idx:idx+str_len].decode("utf-8", errors="replace")
+        status = json.loads(json_str)
+        players = status.get("players", {})
+        return (jsonify({
+            "online": players.get("online", 0),
+            "max": players.get("max", 0),
+            "names": [p.get("name", "?") for p in players.get("sample", [])],
+        }), 200, cors_headers)
+    except Exception:
+        return (jsonify({"online": -1, "max": 0, "names": [], "error": "Server unreachable"}), 200, cors_headers)
 
 
 @app.route("/api/chat", methods=["POST"])
@@ -2662,6 +3028,24 @@ def api_search_photos():
 
     # Case 2: People + semantic text (CLIP-score only that person's photos)
     # Case 3: Pure semantic (no people matched)
+    clip_available = _ai["clip_emb"] is not None and _ai["ready"]
+    if not clip_available and matched_people:
+        # CLIP unavailable but we have matched people — fall back to people-only results
+        person_sets = [_get_person_hashes(cid) for _, cid in matched_people]
+        combined = person_sets[0]
+        for s in person_sets[1:]:
+            combined = combined & s
+        results = []
+        for h in combined:
+            item = hash_to_item.get(h)
+            if item:
+                results.append(item)
+        results.sort(key=lambda x: -x.get("date", 0))
+        results = results[:limit]
+        return jsonify({
+            "results": results, "query": q,
+            "people": people_info, "sort": "date",
+        })
     if _ai["clip_emb"] is None:
         return jsonify({"error": "AI index not built. SSH into the NAS and run: python ai_indexer.py"}), 404
     if not _ai["ready"]:
@@ -3666,6 +4050,73 @@ def api_face_review_submit():
     return jsonify({"status": "ok"})
 
 
+def _mc_auto_shutdown():
+    """Background loop: shut down Minecraft server if no players for 10 minutes."""
+    MC_JAR = "forge-1.7.10-10.13.4.1614-1.7.10-universal.jar"
+    import socket, struct as _st
+    empty_since = None  # timestamp when we first saw 0 players
+    IDLE_LIMIT = 600  # 10 minutes
+
+    while True:
+        time.sleep(60)  # check every minute
+        # Is server even running?
+        try:
+            check = subprocess.run(["pgrep", "-f", MC_JAR], capture_output=True)
+            if check.returncode != 0:
+                empty_since = None
+                continue
+        except Exception:
+            continue
+        # Query player count
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect(("127.0.0.1", 25565))
+            host = b"127.0.0.1"
+            handshake = b"\x00\x05" + bytes([len(host)]) + host + _st.pack(">H", 25565) + b"\x01"
+            sock.sendall(bytes([len(handshake)]) + handshake)
+            sock.sendall(b"\x01\x00")
+            raw = sock.recv(4096)
+            sock.close()
+            # Parse varint-prefixed JSON
+            idx = 0
+            while idx < len(raw) and raw[idx] & 0x80:
+                idx += 1
+            idx += 1
+            while idx < len(raw) and raw[idx] & 0x80:
+                idx += 1
+            idx += 1
+            str_len = 0
+            shift = 0
+            while idx < len(raw):
+                b = raw[idx]
+                str_len |= (b & 0x7F) << shift
+                idx += 1
+                shift += 7
+                if not (b & 0x80):
+                    break
+            status = json.loads(raw[idx:idx+str_len].decode("utf-8", errors="replace"))
+            online = status.get("players", {}).get("online", 0)
+        except Exception:
+            # Can't reach server — might still be starting up, don't kill it
+            empty_since = None
+            continue
+
+        if online == 0:
+            if empty_since is None:
+                empty_since = time.time()
+                print(f"[mc-auto] Server idle, starting 10min countdown")
+            elif time.time() - empty_since >= IDLE_LIMIT:
+                print(f"[mc-auto] No players for {IDLE_LIMIT}s — shutting down")
+                from ai.safe_executor import minecraft_server
+                minecraft_server("off")
+                empty_since = None
+        else:
+            if empty_since is not None:
+                print(f"[mc-auto] Players online ({online}), cancelling shutdown")
+            empty_since = None
+
+
 def _run_startup_tasks():
     """Run once at startup (as root via systemd): refresh sudoers + tailscale serve."""
     import subprocess as _sp
@@ -3697,6 +4148,14 @@ def _run_startup_tasks():
     except Exception as e:
         print(f"[startup] tailscale serve: {e}")
 
+    # Enable tailscale funnel so /api/minecraft is reachable from the public internet
+    try:
+        _sp.run(["tailscale", "funnel", "--bg", "http://localhost:8080"],
+                timeout=15, capture_output=True)
+        print("[startup] tailscale funnel enabled (public access)")
+    except Exception as e:
+        print(f"[startup] tailscale funnel: {e}")
+
     # Provision/renew TLS certificate
     try:
         _sp.run(["tailscale", "cert", "prometheus.tail3045df.ts.net"],
@@ -3712,6 +4171,8 @@ if __name__ == "__main__":
     print("  ║       https://prometheus               ║")
     print("  ╚═══════════════════════════════════════╝\n")
     threading.Thread(target=_run_startup_tasks, daemon=True).start()
+    threading.Thread(target=_mc_auto_shutdown, daemon=True).start()
+    print("  [mc-auto] Auto-shutdown watchdog started (10min idle → off)")
     import sys
     use_debug = "--no-debug" not in sys.argv
     extra_files = []

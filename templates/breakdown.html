@@ -81,6 +81,7 @@
             <span class="font-raj text-base font-bold tracking-[0.15em] text-acc-b cursor-pointer hover:text-wht transition-colors" id="year-label" onclick="closeDetail()"></span>
             <button onclick="navYear(1)" class="bg-acc-d border border-bdr text-acc font-raj text-xs font-bold px-3 py-1 min-h-[44px] min-w-[44px] flex items-center justify-center hover:border-acc transition-colors">&rarr;</button>
             <button onclick="closeDetail()" class="bg-acc-d border border-bdr text-acc font-raj text-[10px] font-bold px-3 py-1 min-h-[44px] hover:border-acc transition-colors tracking-[0.1em] uppercase hidden sm:block">Dashboard</button>
+            <button onclick="toggleMoney()" class="bg-acc-d border border-bdr text-acc font-mono text-sm font-bold px-3 py-1 min-h-[44px] min-w-[44px] flex items-center justify-center hover:border-acc transition-colors" id="money-toggle">$</button>
         </div>
 
         <!-- Layout: calendar + detail stacked on mobile, side-by-side on desktop -->
@@ -248,7 +249,7 @@ function render() {
         // Month header — click for full month view
         html += `<div class="flex justify-between items-center px-3 py-2 shrink-0 cursor-pointer hover:bg-acc/[0.03] transition-colors" onclick="showMonthDetail('${mk}')">
             <span class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${MO[m]}</span>
-            <span class="font-mono text-xs ${total>0?'text-grn group/amt cursor-default':'text-wht/25'}">${total>0?'<span class="group-hover/amt:hidden">$$$</span><span class="hidden group-hover/amt:inline">$'+total.toLocaleString()+'</span>':'—'}</span>
+            <span class="font-mono text-xs ${total>0?'text-grn':'text-wht/25'}">${total>0?(moneyHidden?'$$$':'$'+total.toLocaleString()):'—'}</span>
         </div>`;
         // Two biweek boxes
         html += `<div class="grid grid-cols-2 border-t border-bdr flex-1">`;
@@ -273,8 +274,8 @@ function halfCell(mk, half, entry) {
     const f = entry.furtherAI||0, id = entry.idler||0, t = f+id;
     return `<div class="px-2.5 py-2 cursor-pointer hover:bg-acc/[0.03] transition-colors ${half===1?'border-r border-bdr':''} flex flex-col items-center justify-center" onclick="showHalfDetail('${mk}',${half})">
         <div class="font-raj text-[8px] font-bold tracking-[0.1em] uppercase text-wht mb-0.5">${lbl} Half</div>
-        <div class="font-mono text-sm font-semibold text-acc-b leading-tight group/val cursor-default"><span class="group-hover/val:hidden">$$$</span><span class="hidden group-hover/val:inline">$${t.toLocaleString()}</span></div>
-        <div class="font-raj text-[7px] text-wht tracking-[0.04em] uppercase mt-0.5">FAI <span class="text-acc">$${f.toLocaleString()}</span>${id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':''}</div>
+        <div class="font-mono text-sm font-semibold text-acc-b leading-tight">${moneyHidden ? '$$$' : '$'+t.toLocaleString()}</div>
+        <div class="font-raj text-[7px] text-wht tracking-[0.04em] uppercase mt-0.5">${moneyHidden ? '' : 'FAI <span class="text-acc">$'+f.toLocaleString()+'</span>'+(id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':'')}</div>
     </div>`;
 }
 
@@ -315,9 +316,8 @@ function renderYearSummary() {
     }, 0);
     const portfolioValue = portfolio.holdings.reduce((s,h) => s + (stockPrices[h.ticker]?.c||0) * h.shares, 0);
 
-    let h = `<div class="mb-3 pb-2 border-b border-bdr flex items-center justify-between">
+    let h = `<div class="mb-3 pb-2 border-b border-bdr">
         <div class="font-raj text-sm font-bold tracking-[0.1em] uppercase text-acc-b">${yr} Overview</div>
-        <button onclick="toggleMoney()" class="font-mono text-[10px] text-wht/40 hover:text-wht transition-colors px-1.5 py-0.5 border border-bdr/50 hover:border-wht/20">${moneyHidden ? '👁' : '👁‍🗨'}</button>
     </div>`;
 
     if (monthData.length === 0) {
@@ -457,8 +457,8 @@ function renderDetail() {
         const sc = gradeIdler(id, false);
 
         let html = `<div class="shrink-0">`;
-        html += detailHead(`${MO[m]} ${label}`, `<span class="text-acc-b">$${income.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc, mk, half);
-        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">FAI <span class="text-acc">$${f.toLocaleString()}</span>${id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':''}</div>`;
+        html += detailHead(`${MO[m]} ${label}`, moneyHidden ? '$$$' : `<span class="text-acc-b">$${income.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc, mk, half);
+        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">${moneyHidden ? '' : 'FAI <span class="text-acc">$'+f.toLocaleString()+'</span>'+(id>0?' + IDL <span class="text-acc">$'+id.toLocaleString()+'</span>':'')}</div>`;
         html += `</div>`;
         html += `<div class="flex-1 flex flex-col min-h-0">`;
         html += renderDonutAndAlloc(alloc, gross, label);
@@ -492,9 +492,9 @@ function renderDetail() {
         const sc = gradeIdler(totalId, true);
 
         let html = `<div class="shrink-0">`;
-        html += detailHead(`${MO[m]} ${y}`, `<span class="text-acc-b">$${total.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc);
+        html += detailHead(`${MO[m]} ${y}`, moneyHidden ? '$$$' : `<span class="text-acc-b">$${total.toLocaleString()}</span> <span class="text-[#3a5070] text-xs">/ $${gross.toLocaleString()}</span>`, sc);
         const totalF = (h1?.furtherAI||0)+(h2?.furtherAI||0);
-        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">FAI <span class="text-acc">$${totalF.toLocaleString()}</span>${totalId>0?' + IDL <span class="text-acc">$'+totalId.toLocaleString()+'</span>':''}</div>`;
+        html += `<div class="font-raj text-[11px] text-wht tracking-[0.06em] uppercase mb-3">${moneyHidden ? '' : 'FAI <span class="text-acc">$'+totalF.toLocaleString()+'</span>'+(totalId>0?' + IDL <span class="text-acc">$'+totalId.toLocaleString()+'</span>':'')}</div>`;
         html += `</div>`;
         html += `<div class="flex-1 flex flex-col min-h-0">`;
         html += renderDonutAndAlloc(alloc, gross, 'Monthly');
@@ -548,7 +548,7 @@ function renderDonutAndAlloc(alloc, total, label) {
     h += `<div class="relative w-[110px] h-[110px] sm:w-[130px] sm:h-[130px] shrink-0">
         <svg viewBox="0 0 180 180" class="w-full h-full">${circles}</svg>
         <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-center">
-            <div class="font-mono text-sm font-bold text-wht group cursor-default"><span class="group-hover:hidden">$$$</span><span class="hidden group-hover:inline">${'$'+total.toLocaleString()}</span></div>
+            <div class="font-mono text-sm font-bold text-wht">${moneyHidden ? '$$$' : '$'+total.toLocaleString()}</div>
             <div class="font-raj text-[9px] font-semibold tracking-[0.12em] uppercase text-wht">${label}</div>
         </div>
     </div>`;
@@ -559,7 +559,7 @@ function renderDonutAndAlloc(alloc, total, label) {
             <div class="w-[7px] h-[7px] rounded-full" style="background:${c.color}"></div>
             <span class="font-raj text-[11px] sm:text-xs font-bold tracking-[0.08em] uppercase" style="color:${c.color}">${c.label}</span>
             <div class="h-[4px] bg-bg overflow-hidden rounded-full"><div class="h-full rounded-full" style="width:${pct}%;background:${c.color};box-shadow:0 0 4px ${c.color}60"></div></div>
-            <span class="font-mono text-[11px] sm:text-xs text-right" style="color:${c.color}">$${v.toLocaleString()}</span>
+            <span class="font-mono text-[11px] sm:text-xs text-right" style="color:${c.color}">${moneyHidden ? '$$$' : '$'+v.toLocaleString()}</span>
         </div>`;
     }
     h += `</div></div>`;
@@ -608,7 +608,7 @@ function renderPrediction(mk, income, furtherAI, idler, sc) {
     h += isCurrentMonth ? `Month Projection — ${daysLeft} days left` : `Month Projection`;
     h += `</div>`;
 
-    h += `<div class="font-raj text-[9px] text-wht tracking-[0.04em] uppercase mb-2">This half: $${income.toLocaleString()} locked in</div>`;
+    h += `<div class="font-raj text-[9px] text-wht tracking-[0.04em] uppercase mb-2">This half: ${moneyHidden ? '$$$' : '$'+income.toLocaleString()} locked in</div>`;
 
     if (idlerStats) {
         const bestOther = otherAI + idlerStats.max;
@@ -616,14 +616,14 @@ function renderPrediction(mk, income, furtherAI, idler, sc) {
         const worstOther = otherAI; // no idler
 
         h += `<div class="space-y-1">`;
-        h += predRow('Best', `+$${Math.round(bestOther).toLocaleString()} 2nd half`, income + bestOther, colors.best);
-        h += predRow('Mid', `+$${Math.round(midOther).toLocaleString()} 2nd half`, income + midOther, colors.mid);
-        h += predRow('Worst', `+$${Math.round(worstOther).toLocaleString()} FAI only`, income + worstOther, colors.worst);
+        h += predRow('Best', moneyHidden ? '$$$' : `+$${Math.round(bestOther).toLocaleString()} 2nd half`, income + bestOther, colors.best);
+        h += predRow('Mid', moneyHidden ? '$$$' : `+$${Math.round(midOther).toLocaleString()} 2nd half`, income + midOther, colors.mid);
+        h += predRow('Worst', moneyHidden ? '$$$' : `+$${Math.round(worstOther).toLocaleString()} FAI only`, income + worstOther, colors.worst);
         h += `</div>`;
     } else {
         const worstMonth = income + otherAI;
         h += `<div class="space-y-1">`;
-        h += predRow('Floor', `+$${otherAI.toLocaleString()} FAI only`, worstMonth, colors.worst);
+        h += predRow('Floor', moneyHidden ? '$$$' : `+$${otherAI.toLocaleString()} FAI only`, worstMonth, colors.worst);
         h += `</div>`;
     }
 
@@ -635,7 +635,7 @@ function predRow(label, desc, amount, colorCls) {
     return `<div class="flex items-center gap-2 py-1">
         <span class="font-raj text-[11px] font-bold tracking-[0.08em] uppercase ${colorCls} w-[52px] shrink-0">${label}</span>
         <span class="font-raj text-[9px] text-wht tracking-[0.04em] uppercase flex-1 truncate">${desc}</span>
-        <span class="font-mono text-xs font-bold ${colorCls} shrink-0">$${Math.round(amount).toLocaleString()}</span>
+        <span class="font-mono text-xs font-bold ${colorCls} shrink-0">${moneyHidden ? '$$$' : '$'+Math.round(amount).toLocaleString()}</span>
     </div>`;
 }
 
@@ -655,7 +655,7 @@ function renderVerdict(sc, total) {
         <div class="${c.bg} border ${c.border} px-4 py-3 flex items-center justify-between">
             <div>
                 <div class="font-raj text-xs font-bold tracking-[0.12em] uppercase ${c.color}">${c.label}</div>
-                <div class="font-raj text-[9px] text-wht tracking-[0.06em] uppercase mt-0.5">${sc} case — $${total.toLocaleString()} net</div>
+                <div class="font-raj text-[9px] text-wht tracking-[0.06em] uppercase mt-0.5">${sc} case${moneyHidden ? '' : ' — $'+total.toLocaleString()+' net'}</div>
             </div>
             <span class="font-mono text-2xl ${c.color}">${c.icon}</span>
         </div>
@@ -672,7 +672,7 @@ function renderWhereToSend(alloc) {
     // Checkings
     h += `<div class="flex justify-between items-center py-2.5 border-b border-bdr/30">
         <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-ylw">Checkings</span>
-        <span class="font-mono text-base font-bold text-ylw">$${checkings.toLocaleString()}</span>
+        <span class="font-mono text-base font-bold text-ylw">${moneyHidden ? '$$$' : '$'+checkings.toLocaleString()}</span>
     </div>`;
 
     // Savings (adjustable)
@@ -680,7 +680,7 @@ function renderWhereToSend(alloc) {
         <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-grn">Savings</span>
         <div class="flex items-center gap-2">
             <button onclick="adjustSplit('savings',-100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-grn hover:border-grn active:bg-grn/10 transition-colors font-mono text-base sm:text-sm">-</button>
-            <span class="font-mono text-base font-bold text-grn w-[72px] text-center">$${savings.toLocaleString()}</span>
+            <span class="font-mono text-base font-bold text-grn w-[72px] text-center">${moneyHidden ? '$$$' : '$'+savings.toLocaleString()}</span>
             <button onclick="adjustSplit('savings',100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-grn hover:border-grn active:bg-grn/10 transition-colors font-mono text-base sm:text-sm">+</button>
         </div>
     </div>`;
@@ -690,7 +690,7 @@ function renderWhereToSend(alloc) {
         <span class="font-raj text-xs font-bold tracking-[0.08em] uppercase text-pnk">Mom</span>
         <div class="flex items-center gap-2">
             <button onclick="adjustSplit('mama',-100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-pnk hover:border-pnk active:bg-pnk/10 transition-colors font-mono text-base sm:text-sm">-</button>
-            <span class="font-mono text-base font-bold text-pnk w-[72px] text-center">$${mama.toLocaleString()}</span>
+            <span class="font-mono text-base font-bold text-pnk w-[72px] text-center">${moneyHidden ? '$$$' : '$'+mama.toLocaleString()}</span>
             <button onclick="adjustSplit('mama',100)" class="w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center border border-bdr text-wht hover:text-pnk hover:border-pnk active:bg-pnk/10 transition-colors font-mono text-base sm:text-sm">+</button>
         </div>
     </div>`;
@@ -791,7 +791,14 @@ function mv(val) {
 }
 function toggleMoney() {
     moneyHidden = !moneyHidden;
-    if (!detailView) renderYearSummary();
+    document.getElementById('money-toggle').style.borderColor = moneyHidden ? '' : 'rgb(100,149,237)';
+    render();
+    if (detailView) {
+        if (detailView.half) showHalfDetail(detailView.mk, detailView.half);
+        else showMonthDetail(detailView.mk);
+    } else {
+        renderYearSummary();
+    }
 }
 
 async function loadPortfolio() {
@@ -853,7 +860,7 @@ function renderPortfolioSection() {
             <div class="flex-1">
                 <div class="flex items-center gap-2">
                     <span class="font-mono text-xs font-bold text-acc-b">${h.ticker}</span>
-                    <span class="font-raj text-[8px] text-wht uppercase">${h.shares} sh @ $${h.costBasis.toLocaleString()}</span>
+                    <span class="font-raj text-[8px] text-wht uppercase">${h.shares} sh${moneyHidden ? '' : ' @ $'+h.costBasis.toLocaleString()}</span>
                     <button onclick="removeHolding('${h.ticker}')" class="font-mono text-[8px] text-rd/40 hover:text-rd transition-colors ml-1">x</button>
                 </div>
                 <div class="font-mono text-[10px] text-wht mt-0.5">${moneyHidden ? '$$$' : '$'+price.toFixed(2)} now — <span class="text-wht/60">${moneyHidden ? '$$$' : '$'+cost.toFixed(0)} invested</span></div>

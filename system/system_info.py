@@ -161,11 +161,7 @@ def _get_disks_linux():
                 break
 
         if not name:
-            if mp.startswith("/srv/dev-disk-by"):
-                slug = mp.rsplit("-", 1)[-1] if "-" in mp else mp.split("/")[-1]
-                name = slug[:8]
-            else:
-                continue
+            continue
 
         if name in seen_names:
             continue

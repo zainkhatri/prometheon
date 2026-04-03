@@ -52,7 +52,7 @@ When using search results from ChatGPT history, only share information that dire
 
 ## System Details
 - Debian Linux, Ryzen 3 4300U, commands run locally
-- Storage: EVO NVMe 1TB, AirDisk 512GB boot, T7 465GB, T9 1TB, T5 1TB, merged via MergerFS at /srv/mergerfs/PROMETHEUS
+- Storage: AirDisk 512GB boot, T7 465GB, T9 1TB, T5 1TB, merged via MergerFS at /srv/mergerfs/PROMETHEUS
 - Working directory: /srv/mergerfs/PROMETHEUS
 - `sensors` for temps, `smartctl` for drive health, standard Linux tools
 - This is Zain's personal NAS. All data is important."""

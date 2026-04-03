@@ -29,7 +29,6 @@ else:
 # ─── Drive detection ───
 # Linux NAS: match by device path fragment
 LINUX_DRIVE_MAP = {
-    "nvme0n1": "EVO",
     "sda": "AirDisk",
     "sdb": "T7",
     "sdc": "T9",
@@ -41,7 +40,6 @@ MAC_VOLUME_MAP = {
     "PROMETHEUS": "PROMETHEUS",
     "T5": "T5",
     "T7": "T7",
-    "EVO": "EVO",
     "T9": "T9",
     "Samsung_T5": "T5",
     "Samsung_T7": "T7",

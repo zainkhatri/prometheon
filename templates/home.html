@@ -593,7 +593,6 @@ const itemColors = {
     'Memory':     '#7baaf7',  // periwinkle
     'PROMETHEUS': '#3d7be0',  // deep blue
     // Drives — fun colors
-    'EVO':        '#6495ed',  // cornflower blue
     'AirDisk':    '#c084fc',  // purple
     'T7':         '#00ff99',  // green
     'T9':         '#f59e0b',  // amber
@@ -704,7 +703,7 @@ async function loadVitals() {
         if (info.mordor) _updateMordor(left, info);
 
         const right = document.getElementById('v-col-right');
-        const driveOrder = ['EVO', 'AirDisk', 'T7', 'T9'];
+        const driveOrder = ['AirDisk', 'T7', 'T9'];
         const shown = new Set(['PROMETHEUS']);
         driveOrder.forEach(name => {
             const d = info.disks.find(x => x.name === name);
@@ -789,5 +788,6 @@ async function prefetchPhotoThumbs() {
 }
 setTimeout(prefetchPhotoThumbs, 1500);
 </script>
+<script>if('serviceWorker' in navigator)navigator.serviceWorker.register('/sw.js');</script>
 </body>
 </html>
